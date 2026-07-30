@@ -32,8 +32,9 @@ services:
         value: GerencialITZbot
 
   # 2. Frontend Conductor / Telegram Mini App (Sitio Estático)
-  - type: static
+  - type: web
     name: gerenciamiento-viajes-frontend
+    env: static
     buildCommand: ""
     staticPublishPath: ./frontend
     routes:
@@ -42,8 +43,9 @@ services:
         destination: https://gerenciamiento-viajes-backend.onrender.com/api/*
 
   # 3. Panel Administrativo (Sitio Estático)
-  - type: static
+  - type: web
     name: gerenciamiento-viajes-panel-admin
+    env: static
     buildCommand: ""
     staticPublishPath: ./panel-admin
     routes:
