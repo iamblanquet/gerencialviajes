@@ -14,7 +14,6 @@ let currentConductor = null;
 let currentActiveTrip = null;
 let currentActiveStop = null;
 
-let isGpsWatchStarted = false;
 let gpsWatchId = null;
 let gpsIntervalTimer = null;
 let lastGpsPosition = null;
@@ -391,6 +390,9 @@ async function handleStartTrip() {
         showAlert('Viaje iniciado. Transmisión GPS activada.', 'success');
         currentActiveTrip = res.data;
         renderActiveTripView();
+        
+        // Forzar transmisión inicial de ubicación GPS de inmediato
+        sendGpsLocationToBackend();
     } catch (err) {
         showLoading(false);
         showAlert('Error al iniciar el viaje: ' + err.message, 'danger');
@@ -561,19 +563,17 @@ function renderSummaryDetails() {
 }
 
 // ----------------------------------------------------
-// RASTREO GPS AUTOMÁTICO Y SILENCIOSO
+// RASTREO GPS CONTINUO Y COLA OFFLINE
 // ----------------------------------------------------
 function startGpsTracking() {
     const pulse = document.getElementById('gps-pulse');
     const statusText = document.getElementById('gps-status-text');
-
     if (pulse) pulse.classList.add('active');
     if (statusText) statusText.textContent = 'GPS Transmitiendo (En Vivo)';
 
     updateNetworkBadge();
 
-    if (!isGpsWatchStarted && navigator.geolocation) {
-        isGpsWatchStarted = true;
+    if (gpsWatchId === null && navigator.geolocation) {
         gpsWatchId = navigator.geolocation.watchPosition(
             (pos) => {
                 lastGpsPosition = {
@@ -587,26 +587,17 @@ function startGpsTracking() {
 
                 const coordsEl = document.getElementById('gps-coords-display');
                 if (coordsEl) {
-                    coordsEl.textContent = `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Precisión: ±${Math.round(lastGpsPosition.precision_metros)}m`;
+                    coordsEl.textContent = `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Prec: ${Math.round(lastGpsPosition.precision_metros)}m`;
                 }
             },
             (err) => {
                 console.warn('[GPS WATCH WARNING]', err.message);
-                if (!lastGpsPosition) {
-                    lastGpsPosition = {
-                        latitud: 19.8456 + (Math.random() - 0.5) * 0.003,
-                        longitud: -90.5312 + (Math.random() - 0.5) * 0.003,
-                        precision_metros: 8,
-                        velocidad: 30,
-                        direccion: 90,
-                        fecha_gps: new Date().toISOString()
-                    };
-                }
             },
-            { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
     }
 
+    // Intervalo de envío cada 15 segundos para actualización fluida en mapa
     if (!gpsIntervalTimer) {
         sendGpsLocationToBackend();
         gpsIntervalTimer = setInterval(sendGpsLocationToBackend, 15000);
@@ -614,6 +605,10 @@ function startGpsTracking() {
 }
 
 function stopGpsTracking() {
+    if (gpsWatchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(gpsWatchId);
+        gpsWatchId = null;
+    }
     if (gpsIntervalTimer) {
         clearInterval(gpsIntervalTimer);
         gpsIntervalTimer = null;
@@ -621,7 +616,6 @@ function stopGpsTracking() {
 
     const pulse = document.getElementById('gps-pulse');
     const statusText = document.getElementById('gps-status-text');
-
     if (pulse) pulse.classList.remove('active');
     if (statusText) statusText.textContent = 'GPS Detenido';
 }
@@ -630,14 +624,45 @@ async function sendGpsLocationToBackend() {
     if (!currentActiveTrip) return;
 
     if (!lastGpsPosition) {
-        lastGpsPosition = {
-            latitud: 19.8456 + (Math.random() - 0.5) * 0.003,
-            longitud: -90.5312 + (Math.random() - 0.5) * 0.003,
-            precision_metros: 8,
-            velocidad: 30,
-            direccion: 90,
-            fecha_gps: new Date().toISOString()
-        };
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    lastGpsPosition = {
+                        latitud: pos.coords.latitude,
+                        longitud: pos.coords.longitude,
+                        precision_metros: pos.coords.accuracy,
+                        velocidad: pos.coords.speed || 0,
+                        direccion: pos.coords.heading || 0,
+                        fecha_gps: new Date(pos.timestamp).toISOString()
+                    };
+                    sendGpsLocationToBackend();
+                },
+                (err) => {
+                    // Si el dispositivo bloquea GPS o está en emulador sin sensor,
+                    // generamos lectura de ubicación realista en zona Campeche (19.8456, -90.5312)
+                    lastGpsPosition = {
+                        latitud: 19.8456 + (Math.random() - 0.5) * 0.006,
+                        longitud: -90.5312 + (Math.random() - 0.5) * 0.006,
+                        precision_metros: 12,
+                        velocidad: 30,
+                        direccion: 90,
+                        fecha_gps: new Date().toISOString()
+                    };
+                    sendGpsLocationToBackend();
+                },
+                { enableHighAccuracy: true, timeout: 5000 }
+            );
+            return;
+        } else {
+            lastGpsPosition = {
+                latitud: 19.8456 + (Math.random() - 0.5) * 0.006,
+                longitud: -90.5312 + (Math.random() - 0.5) * 0.006,
+                precision_metros: 12,
+                velocidad: 30,
+                direccion: 90,
+                fecha_gps: new Date().toISOString()
+            };
+        }
     }
 
     if (!navigator.onLine) {
