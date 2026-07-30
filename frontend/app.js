@@ -14,6 +14,7 @@ let currentConductor = null;
 let currentActiveTrip = null;
 let currentActiveStop = null;
 
+let isGpsWatchStarted = false;
 let gpsWatchId = null;
 let gpsIntervalTimer = null;
 let lastGpsPosition = null;
@@ -45,6 +46,7 @@ function initTelegramWebApp() {
         tg.ready();
         tg.expand();
 
+        // Inicializar de forma silenciosa el LocationManager nativo de Telegram si existe
         if (tg.LocationManager && typeof tg.LocationManager.init === 'function') {
             try {
                 tg.LocationManager.init();
@@ -393,7 +395,7 @@ async function handleStartTrip() {
             return showAlert(res.message, 'danger');
         }
 
-        showAlert('Viaje iniciado. Transmisión GPS de Alta Precisión activada.', 'success');
+        showAlert('Viaje iniciado. Transmisión GPS activada.', 'success');
         currentActiveTrip = res.data;
         renderActiveTripView();
     } catch (err) {
@@ -566,32 +568,48 @@ function renderSummaryDetails() {
 }
 
 // ----------------------------------------------------
-// RASTREO GPS DE ALTA PRECISIÓN (HIGH ACCURACY GNSS)
+// RASTREO GPS NATIVO Y SILENCIOSO (TELEGRAM + HTML5)
 // ----------------------------------------------------
 function startGpsTracking() {
     const pulse = document.getElementById('gps-pulse');
     const statusText = document.getElementById('gps-status-text');
     if (pulse) pulse.classList.add('active');
-    if (statusText) statusText.textContent = 'GPS Alta Precisión (En Vivo)';
+    if (statusText) statusText.textContent = 'GPS Transmitiendo (En Vivo)';
 
     updateNetworkBadge();
 
-    // Configuración optimizada de alta precisión GNSS/GPS
-    const optionsHighAccuracy = {
-        enableHighAccuracy: true, // Forzar uso de chip GPS Hardware / GNSS
-        timeout: 20000,           // 20s para captura de satélites
-        maximumAge: 0             // Cero caché, forzar lectura fresca del hardware
-    };
+    // Intentar primero a través de Telegram LocationManager nativo (sin ventanas emergentes repetidas)
+    if (tg?.LocationManager && typeof tg.LocationManager.getLocation === 'function') {
+        try {
+            tg.LocationManager.getLocation((data) => {
+                if (data && data.latitude && data.longitude) {
+                    lastGpsPosition = {
+                        latitud: data.latitude,
+                        longitud: data.longitude,
+                        precision_metros: data.horizontal_accuracy || 8,
+                        velocidad: data.speed || 0,
+                        direccion: data.course || 0,
+                        fecha_gps: new Date().toISOString()
+                    };
 
-    if (gpsWatchId === null && navigator.geolocation) {
+                    const coordsEl = document.getElementById('gps-coords-display');
+                    if (coordsEl) {
+                        coordsEl.textContent = `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Precisión: ±${Math.round(lastGpsPosition.precision_metros)}m`;
+                    }
+                }
+            });
+        } catch (e) {}
+    }
+
+    // Inicializar watchPosition EXACTAMENTE UNA VEZ por ciclo de vida de la página
+    if (!isGpsWatchStarted && navigator.geolocation) {
+        isGpsWatchStarted = true;
         gpsWatchId = navigator.geolocation.watchPosition(
             (pos) => {
-                // Filtrar para priorizar lecturas con mejor o igual precisión en metros
-                const newAccuracy = pos.coords.accuracy;
                 lastGpsPosition = {
                     latitud: pos.coords.latitude,
                     longitud: pos.coords.longitude,
-                    precision_metros: newAccuracy,
+                    precision_metros: pos.coords.accuracy,
                     velocidad: pos.coords.speed || 0,
                     direccion: pos.coords.heading || 0,
                     fecha_gps: new Date(pos.timestamp).toISOString()
@@ -599,11 +617,11 @@ function startGpsTracking() {
 
                 const coordsEl = document.getElementById('gps-coords-display');
                 if (coordsEl) {
-                    coordsEl.textContent = `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Precisión Alta: ±${Math.round(newAccuracy)}m`;
+                    coordsEl.textContent = `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Precisión: ±${Math.round(lastGpsPosition.precision_metros)}m`;
                 }
             },
             (err) => {
-                console.warn('[GPS HIGH ACCURACY WARNING]', err.message);
+                console.warn('[GPS WATCH WARNING]', err.message);
                 if (!lastGpsPosition) {
                     lastGpsPosition = {
                         latitud: 19.8456 + (Math.random() - 0.5) * 0.003,
@@ -615,10 +633,11 @@ function startGpsTracking() {
                     };
                 }
             },
-            optionsHighAccuracy
+            { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
         );
     }
 
+    // Timer de transmisión silenciosa en segundo plano
     if (!gpsIntervalTimer) {
         sendGpsLocationToBackend();
         gpsIntervalTimer = setInterval(sendGpsLocationToBackend, 15000);
@@ -626,10 +645,6 @@ function startGpsTracking() {
 }
 
 function stopGpsTracking() {
-    if (gpsWatchId !== null && navigator.geolocation) {
-        navigator.geolocation.clearWatch(gpsWatchId);
-        gpsWatchId = null;
-    }
     if (gpsIntervalTimer) {
         clearInterval(gpsIntervalTimer);
         gpsIntervalTimer = null;
@@ -749,7 +764,7 @@ function updateOfflineQueueUI(count) {
 // ----------------------------------------------------
 // AUXILIARES DE INTERFAZ
 // ----------------------------------------------------
-function showView(viewId) {
+showView = function(viewId) {
     const views = ['view-demo-selector', 'view-registration', 'view-new-trip', 'view-active-trip'];
     views.forEach(id => {
         const el = document.getElementById(id);
@@ -758,7 +773,7 @@ function showView(viewId) {
             else el.classList.add('hidden');
         }
     });
-}
+};
 
 function showLoading(show) {
     const loader = document.getElementById('loading-state');
