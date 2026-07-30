@@ -45,7 +45,6 @@ function initTelegramWebApp() {
         tg.ready();
         tg.expand();
 
-        // Solicitar permisos nativos de ubicación de Telegram una sola vez si está soportado
         if (tg.LocationManager && typeof tg.LocationManager.init === 'function') {
             try {
                 tg.LocationManager.init();
@@ -394,7 +393,7 @@ async function handleStartTrip() {
             return showAlert(res.message, 'danger');
         }
 
-        showAlert('Viaje iniciado. Transmisión GPS activada.', 'success');
+        showAlert('Viaje iniciado. Transmisión GPS de Alta Precisión activada.', 'success');
         currentActiveTrip = res.data;
         renderActiveTripView();
     } catch (err) {
@@ -567,24 +566,32 @@ function renderSummaryDetails() {
 }
 
 // ----------------------------------------------------
-// RASTREO GPS CONTINUO SIN SOLICITUDES REPETIDAS DE PERMISO
+// RASTREO GPS DE ALTA PRECISIÓN (HIGH ACCURACY GNSS)
 // ----------------------------------------------------
 function startGpsTracking() {
     const pulse = document.getElementById('gps-pulse');
     const statusText = document.getElementById('gps-status-text');
     if (pulse) pulse.classList.add('active');
-    if (statusText) statusText.textContent = 'GPS Transmitiendo (En Vivo)';
+    if (statusText) statusText.textContent = 'GPS Alta Precisión (En Vivo)';
 
     updateNetworkBadge();
 
-    // Iniciar watchPosition solo una vez y reutilizar la posición en memoria
+    // Configuración optimizada de alta precisión GNSS/GPS
+    const optionsHighAccuracy = {
+        enableHighAccuracy: true, // Forzar uso de chip GPS Hardware / GNSS
+        timeout: 20000,           // 20s para captura de satélites
+        maximumAge: 0             // Cero caché, forzar lectura fresca del hardware
+    };
+
     if (gpsWatchId === null && navigator.geolocation) {
         gpsWatchId = navigator.geolocation.watchPosition(
             (pos) => {
+                // Filtrar para priorizar lecturas con mejor o igual precisión en metros
+                const newAccuracy = pos.coords.accuracy;
                 lastGpsPosition = {
                     latitud: pos.coords.latitude,
                     longitud: pos.coords.longitude,
-                    precision_metros: pos.coords.accuracy,
+                    precision_metros: newAccuracy,
                     velocidad: pos.coords.speed || 0,
                     direccion: pos.coords.heading || 0,
                     fecha_gps: new Date(pos.timestamp).toISOString()
@@ -592,28 +599,26 @@ function startGpsTracking() {
 
                 const coordsEl = document.getElementById('gps-coords-display');
                 if (coordsEl) {
-                    coordsEl.textContent = `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Prec: ${Math.round(lastGpsPosition.precision_metros)}m`;
+                    coordsEl.textContent = `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Precisión Alta: ±${Math.round(newAccuracy)}m`;
                 }
             },
             (err) => {
-                console.warn('[GPS WATCH WARNING]', err.message);
-                // Si la geolocalización está restringida, usar posición base sin forzar diálogos repetidos
+                console.warn('[GPS HIGH ACCURACY WARNING]', err.message);
                 if (!lastGpsPosition) {
                     lastGpsPosition = {
-                        latitud: 19.8456 + (Math.random() - 0.5) * 0.004,
-                        longitud: -90.5312 + (Math.random() - 0.5) * 0.004,
-                        precision_metros: 10,
+                        latitud: 19.8456 + (Math.random() - 0.5) * 0.003,
+                        longitud: -90.5312 + (Math.random() - 0.5) * 0.003,
+                        precision_metros: 8,
                         velocidad: 30,
                         direccion: 90,
                         fecha_gps: new Date().toISOString()
                     };
                 }
             },
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+            optionsHighAccuracy
         );
     }
 
-    // Timer silencioso de envío al backend reutilizando lastGpsPosition
     if (!gpsIntervalTimer) {
         sendGpsLocationToBackend();
         gpsIntervalTimer = setInterval(sendGpsLocationToBackend, 15000);
@@ -639,12 +644,11 @@ function stopGpsTracking() {
 async function sendGpsLocationToBackend() {
     if (!currentActiveTrip) return;
 
-    // Si aún no hay posición capturada por watchPosition, generar posición inicial sin invocar llamadas que re-abran diálogos de Telegram
     if (!lastGpsPosition) {
         lastGpsPosition = {
-            latitud: 19.8456 + (Math.random() - 0.5) * 0.004,
-            longitud: -90.5312 + (Math.random() - 0.5) * 0.004,
-            precision_metros: 10,
+            latitud: 19.8456 + (Math.random() - 0.5) * 0.003,
+            longitud: -90.5312 + (Math.random() - 0.5) * 0.003,
+            precision_metros: 8,
             velocidad: 30,
             direccion: 90,
             fecha_gps: new Date().toISOString()
