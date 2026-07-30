@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { sendTelegramMessage } = require('../utils/telegramNotify');
 
 // Generador de folio consecutivo diario VJ-YYYYMMDD-0001
 function generarFolioDiario() {
@@ -12,7 +13,6 @@ function generarFolioDiario() {
     const prefijoFolio = `VJ-${prefijoFecha}-`;
 
     const row = db.prepare(`
-        SELECT COUNT(*) as total 
         SELECT COUNT(*) as total FROM viajes 
         WHERE folio LIKE ?
     `).get(`${prefijoFolio}%`);
@@ -113,7 +113,6 @@ router.post('/', (req, res) => {
 
             const tripId = result.lastInsertRowid;
 
-            // Historial
             db.prepare(`
                 INSERT INTO historial_estados_viaje (id_viajes, id_estado_anterior, id_estado_nuevo, observaciones)
                 VALUES (?, NULL, 2, 'Viaje registrado en estado PENDIENTE')
@@ -135,6 +134,17 @@ router.post('/', (req, res) => {
             WHERE v.id_viajes = ?
         `).get(createdTripId);
 
+        // Enviar Notificación por Telegram si está configurado
+        sendTelegramMessage(
+            `🆕 *Nuevo Viaje Creado*\n\n` +
+            `*Folio:* \`${trip.folio}\`\n` +
+            `*Conductor:* ${trip.conductor_nombre}\n` +
+            `*Vehículo:* ${trip.vehiculo_nombre} (${trip.numero_economico})\n` +
+            `*Ruta:* ${trip.origen_nombre} ➔ ${trip.destino_nombre}\n` +
+            `*Km Inicial:* ${trip.kilometraje_inicial} km\n` +
+            `*Motivo:* ${trip.motivo}`
+        );
+
         return res.status(201).json({
             success: true,
             message: `Viaje creado exitosamente con Folio: ${folio}`,
@@ -155,11 +165,10 @@ router.post('/:idViaje/iniciar', (req, res) => {
             return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
         }
 
-        if (trip.id_estado_viaje !== 2 && trip.id_estado_viaje !== 1) { // PENDIENTE (2) o BORRADOR (1)
+        if (trip.id_estado_viaje !== 2 && trip.id_estado_viaje !== 1) {
             return res.status(400).json({ success: false, message: 'Solo se pueden iniciar viajes en estado PENDIENTE o BORRADOR.' });
         }
 
-        // Transacción SQLite para iniciar viaje
         const startTransaction = db.transaction(() => {
             db.prepare(`
                 UPDATE viajes
@@ -187,6 +196,15 @@ router.post('/:idViaje/iniciar', (req, res) => {
             WHERE v.id_viajes = ?
         `).get(idViaje);
 
+        // Notificación Telegram
+        sendTelegramMessage(
+            `🚀 *Viaje Iniciado*\n\n` +
+            `*Folio:* \`${updatedTrip.folio}\`\n` +
+            `*Conductor:* ${updatedTrip.conductor_nombre}\n` +
+            `*Vehículo:* ${updatedTrip.vehiculo_nombre} (${updatedTrip.numero_economico})\n` +
+            `*Salida:* ${new Date(updatedTrip.hora_salida).toLocaleString('es-MX')}`
+        );
+
         return res.json({
             success: true,
             message: 'Viaje iniciado exitosamente',
@@ -212,7 +230,7 @@ router.post('/:idViaje/finalizar', (req, res) => {
             return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
         }
 
-        if (trip.id_estado_viaje !== 3) { // 3 = EN_CURSO
+        if (trip.id_estado_viaje !== 3) {
             return res.status(400).json({ success: false, message: 'Solo se pueden finalizar viajes que se encuentren EN_CURSO.' });
         }
 
@@ -226,9 +244,7 @@ router.post('/:idViaje/finalizar', (req, res) => {
 
         const kmRecorridos = kmFinalNum - trip.kilometraje_inicial;
 
-        // Transacción SQLite para finalizar viaje y actualizar vehículo
         const finishTransaction = db.transaction(() => {
-            // Actualizar Viaje
             db.prepare(`
                 UPDATE viajes
                 SET id_estado_viaje = 5,
@@ -239,7 +255,6 @@ router.post('/:idViaje/finalizar', (req, res) => {
                 WHERE id_viajes = ?
             `).run(kmFinalNum, kmRecorridos, idViaje);
 
-            // Actualizar Kilometraje del Vehículo con el mayor valor
             db.prepare(`
                 UPDATE vehiculos
                 SET kilometraje_actual = MAX(kilometraje_actual, ?),
@@ -247,7 +262,6 @@ router.post('/:idViaje/finalizar', (req, res) => {
                 WHERE id_vehiculos = ?
             `).run(kmFinalNum, trip.id_vehiculos);
 
-            // Registrar Historial
             db.prepare(`
                 INSERT INTO historial_estados_viaje (id_viajes, id_estado_anterior, id_estado_nuevo, observaciones)
                 VALUES (?, 3, 5, ?)
@@ -268,12 +282,21 @@ router.post('/:idViaje/finalizar', (req, res) => {
             WHERE v.id_viajes = ?
         `).get(idViaje);
 
-        // Obtener última ubicación GPS registrada
         const lastLocation = db.prepare(`
             SELECT * FROM ubicaciones_viaje WHERE id_viajes = ? ORDER BY id_ubicaciones_viaje DESC LIMIT 1
         `).get(idViaje);
 
         finishedTrip.ultima_ubicacion = lastLocation || null;
+
+        // Notificación Telegram
+        sendTelegramMessage(
+            `🏁 *Viaje Finalizado*\n\n` +
+            `*Folio:* \`${finishedTrip.folio}\`\n` +
+            `*Conductor:* ${finishedTrip.conductor_nombre}\n` +
+            `*Km Recorridos:* ${finishedTrip.kilometros_recorridos} km\n` +
+            `*Km Final:* ${finishedTrip.kilometraje_final} km\n` +
+            `*Llegada:* ${new Date(finishedTrip.hora_llegada).toLocaleString('es-MX')}`
+        );
 
         return res.json({
             success: true,
@@ -390,7 +413,6 @@ router.post('/:idViaje/ubicaciones', (req, res) => {
 
         const gpsDate = fecha_gps ? new Date(fecha_gps).toISOString() : new Date().toISOString();
 
-        // Transacción SQLite para guardar ubicación
         const insertGpsTransaction = db.transaction(() => {
             const insertStmt = db.prepare(`
                 INSERT INTO ubicaciones_viaje (id_viajes, latitud, longitud, precision_metros, velocidad, direccion, fecha_gps, creado_en)
