@@ -1,5 +1,13 @@
 // Configuración Global y Estado de la App
-const API_URL = '/api';
+function getApiUrl() {
+    // Si estamos desplegados en Render.com, redirigir llamadas de API al Web Service backend de Render
+    if (window.location.hostname.includes('onrender.com')) {
+        return 'https://gerenciamiento-viajes-backend.onrender.com/api';
+    }
+    return '/api';
+}
+
+const API_URL = getApiUrl();
 let tg = window.Telegram?.WebApp || null;
 
 let currentTelegramUser = null;
@@ -10,6 +18,17 @@ let gpsIntervalTimer = null;
 let lastGpsPosition = null;
 let catalogVehicles = [];
 let catalogPlaces = [];
+
+// Helper para llamadas fetch seguras
+async function safeFetchJson(url, options = {}) {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`El servidor devolvió un error (${res.status}): ${text.substring(0, 100)}`);
+    }
+    return await res.json();
+}
 
 // Inicialización cuando carga la página
 document.addEventListener('DOMContentLoaded', () => {
@@ -26,11 +45,10 @@ function initTelegramWebApp() {
     const initData = tg?.initData || '';
     
     if (initData) {
-        document.getElementById('telegram-badge').textContent = 'Telegram Real ✅';
+        document.getElementById('telegram-badge').textContent = 'TELEGRAM REAL ✅';
         document.getElementById('telegram-badge').className = 'badge badge-success';
         autenticarTelegram(initData, null);
     } else {
-        // Si no hay initData (abierto fuera de Telegram), intentar verificar si hay usuario persistido o permitir inicialización
         const savedUser = localStorage.getItem('tg_user_session');
         if (savedUser) {
             try {
@@ -47,7 +65,6 @@ function initTelegramWebApp() {
 }
 
 function setupEventListeners() {
-    // Botón Iniciar Sesión Telegram / ID
     document.getElementById('btn-start-demo').addEventListener('click', () => {
         const id = document.getElementById('demo-user-id').value;
         const username = document.getElementById('demo-username').value;
@@ -58,10 +75,8 @@ function setupEventListeners() {
         autenticarTelegram(null, testUserObj);
     });
 
-    // Formulario Registro de Conductor
     document.getElementById('form-register-driver').addEventListener('submit', handleRegisterDriver);
 
-    // Selección de Vehículo -> Precargar Kilometraje Inicial
     document.getElementById('trip-vehiculo').addEventListener('change', (e) => {
         const selectedId = Number(e.target.value);
         const vehicle = catalogVehicles.find(v => v.id_vehiculos === selectedId);
@@ -72,16 +87,13 @@ function setupEventListeners() {
         }
     });
 
-    // Formulario Nuevo Viaje
     document.getElementById('form-create-trip').addEventListener('submit', handleCreateTrip);
 
-    // Acciones del Viaje
     document.getElementById('btn-start-trip').addEventListener('click', handleStartTrip);
     document.getElementById('btn-open-finish-modal').addEventListener('click', openFinishModal);
     document.getElementById('btn-close-modal').addEventListener('click', closeFinishModal);
     document.getElementById('form-finish-trip').addEventListener('submit', handleFinishTrip);
 
-    // Input de kilometraje final -> calcular kilómetros recorridos
     document.getElementById('finish-km-final').addEventListener('input', (e) => {
         if (!currentActiveTrip) return;
         const finalKm = Number(e.target.value) || 0;
@@ -92,7 +104,6 @@ function setupEventListeners() {
         document.getElementById('modal-km-recorridos-val').textContent = `${distance} km`;
     });
 
-    // Crear otro viaje
     document.getElementById('btn-new-trip-again').addEventListener('click', () => {
         currentActiveTrip = null;
         stopGpsTracking();
@@ -106,12 +117,11 @@ function setupEventListeners() {
 async function autenticarTelegram(initData, testUser) {
     showLoading(true);
     try {
-        const response = await fetch(`${API_URL}/telegram/autenticar`, {
+        const res = await safeFetchJson(`${API_URL}/telegram/autenticar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData, testUser })
         });
-        const res = await response.json();
 
         if (!res.success) {
             showLoading(false);
@@ -146,12 +156,11 @@ async function handleRegisterDriver(e) {
     };
 
     try {
-        const response = await fetch(`${API_URL}/telegram/registro-conductor`, {
+        const res = await safeFetchJson(`${API_URL}/telegram/registro-conductor`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        const res = await response.json();
         showLoading(false);
 
         if (!res.success) {
@@ -172,8 +181,7 @@ async function handleRegisterDriver(e) {
 async function checkActiveTripOrLoadForm() {
     showLoading(true);
     try {
-        const response = await fetch(`${API_URL}/viajes/activo?id_conductores=${currentConductor.id_conductores}`);
-        const res = await response.json();
+        const res = await safeFetchJson(`${API_URL}/viajes/activo?id_conductores=${currentConductor.id_conductores}`);
         showLoading(false);
 
         if (res.success && res.data) {
@@ -192,8 +200,8 @@ async function loadNewTripForm() {
     showLoading(true);
     try {
         const [resVeh, resLug] = await Promise.all([
-            fetch(`${API_URL}/catalogos/vehiculos`).then(r => r.json()),
-            fetch(`${API_URL}/catalogos/lugares`).then(r => r.json())
+            safeFetchJson(`${API_URL}/catalogos/vehiculos`),
+            safeFetchJson(`${API_URL}/catalogos/lugares`)
         ]);
 
         showLoading(false);
@@ -272,12 +280,11 @@ async function handleCreateTrip(e) {
 
     showLoading(true);
     try {
-        const response = await fetch(`${API_URL}/viajes`, {
+        const res = await safeFetchJson(`${API_URL}/viajes`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        const res = await response.json();
         showLoading(false);
 
         if (!res.success) {
@@ -315,17 +322,17 @@ function renderActiveTripView() {
     btnNewAgain.classList.add('hidden');
     summarySection.classList.add('hidden');
 
-    if (currentActiveTrip.id_estado_viaje === 2) { // PENDIENTE
+    if (currentActiveTrip.id_estado_viaje === 2) {
         statusBadge.textContent = 'PENDIENTE';
         statusBadge.className = 'badge badge-warning';
         btnStart.classList.remove('hidden');
         stopGpsTracking();
-    } else if (currentActiveTrip.id_estado_viaje === 3) { // EN_CURSO
+    } else if (currentActiveTrip.id_estado_viaje === 3) {
         statusBadge.textContent = 'EN_CURSO';
         statusBadge.className = 'badge badge-success';
         btnFinish.classList.remove('hidden');
         startGpsTracking();
-    } else if (currentActiveTrip.id_estado_viaje === 5) { // FINALIZADO
+    } else if (currentActiveTrip.id_estado_viaje === 5) {
         statusBadge.textContent = 'FINALIZADO';
         statusBadge.className = 'badge badge-info';
         btnNewAgain.classList.remove('hidden');
@@ -340,10 +347,9 @@ async function handleStartTrip() {
 
     showLoading(true);
     try {
-        const response = await fetch(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/iniciar`, {
+        const res = await safeFetchJson(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/iniciar`, {
             method: 'POST'
         });
-        const res = await response.json();
         showLoading(false);
 
         if (!res.success) {
@@ -383,12 +389,11 @@ async function handleFinishTrip(e) {
     closeFinishModal();
 
     try {
-        const response = await fetch(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/finalizar`, {
+        const res = await safeFetchJson(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/finalizar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ kilometraje_final: kmFinal })
         });
-        const res = await response.json();
         showLoading(false);
 
         if (!res.success) {
@@ -485,7 +490,7 @@ async function sendGpsLocationToBackend() {
     if (!currentActiveTrip || currentActiveTrip.id_estado_viaje !== 3 || !lastGpsPosition) return;
 
     try {
-        await fetch(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/ubicaciones`, {
+        await safeFetchJson(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/ubicaciones`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(lastGpsPosition)

@@ -1,7 +1,25 @@
-const API_URL = '/api/admin';
+function getApiUrl() {
+    if (window.location.hostname.includes('onrender.com')) {
+        return 'https://gerenciamiento-viajes-backend.onrender.com/api/admin';
+    }
+    return '/api/admin';
+}
+
+const API_URL = getApiUrl();
 
 let currentAdmin = null;
 let currentModule = 'viajes';
+
+// Helper para llamadas fetch seguras
+async function safeFetchJson(url, options = {}) {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`El servidor devolvió un error (${res.status}): ${text.substring(0, 100)}`);
+    }
+    return await res.json();
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     checkSession();
@@ -9,13 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupAdminEvents() {
-    // Formulario de Login
     document.getElementById('form-login').addEventListener('submit', handleLogin);
-
-    // Botón Logout
     document.getElementById('btn-logout').addEventListener('click', handleLogout);
 
-    // Navegación Sidebar
     document.querySelectorAll('.menu-item').forEach(item => {
         item.addEventListener('click', (e) => {
             e.preventDefault();
@@ -24,17 +38,14 @@ function setupAdminEvents() {
         });
     });
 
-    // Filtro de Viajes
     document.getElementById('filter-viajes-estado').addEventListener('change', () => loadViajes());
     document.getElementById('btn-refresh-viajes').addEventListener('click', () => loadViajes());
 
-    // Botones Agregar
     document.getElementById('btn-add-conductor').addEventListener('click', () => openConductorModal());
     document.getElementById('btn-add-vehiculo').addEventListener('click', () => openVehiculoModal());
     document.getElementById('btn-add-lugar').addEventListener('click', () => openLugarModal());
     document.getElementById('btn-refresh-gps').addEventListener('click', () => loadUbicacionesGPS());
 
-    // Cierre Modal
     document.getElementById('btn-close-admin-modal').addEventListener('click', closeModal);
 }
 
@@ -43,9 +54,7 @@ function setupAdminEvents() {
 // ----------------------------------------------------
 async function checkSession() {
     try {
-        const response = await fetch(`${API_URL}/auth/session`);
-        const res = await response.json();
-
+        const res = await safeFetchJson(`${API_URL}/auth/session`);
         if (res.success && res.data) {
             currentAdmin = res.data;
             showDashboard();
@@ -66,12 +75,11 @@ async function handleLogin(e) {
     const password = document.getElementById('login-password').value;
 
     try {
-        const response = await fetch(`${API_URL}/auth/login`, {
+        const res = await safeFetchJson(`${API_URL}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
-        const res = await response.json();
 
         if (!res.success) {
             alertBox.textContent = res.message;
@@ -117,13 +125,11 @@ function showDashboard() {
 function switchModule(modName) {
     currentModule = modName;
 
-    // Actualizar sidebar active
     document.querySelectorAll('.menu-item').forEach(item => {
         if (item.getAttribute('data-module') === modName) item.classList.add('active');
         else item.classList.remove('active');
     });
 
-    // Ocultar todos los módulos
     const modules = ['viajes', 'conductores', 'unidades', 'destinos', 'ubicaciones'];
     modules.forEach(m => {
         const el = document.getElementById(`mod-${m}`);
@@ -133,7 +139,6 @@ function switchModule(modName) {
         }
     });
 
-    // Titulo del Modulo
     const titles = {
         viajes: 'Gestión y Historial de Viajes',
         conductores: 'Catálogo de Conductores',
@@ -143,7 +148,6 @@ function switchModule(modName) {
     };
     document.getElementById('module-title').textContent = titles[modName] || 'Dashboard';
 
-    // Cargar Datos del Modulo
     if (modName === 'viajes') loadViajes();
     else if (modName === 'conductores') loadConductores();
     else if (modName === 'unidades') loadUnidades();
@@ -163,8 +167,7 @@ async function loadViajes() {
     if (estadoFilter) url += `?estado=${encodeURIComponent(estadoFilter)}`;
 
     try {
-        const response = await fetch(url);
-        const res = await response.json();
+        const res = await safeFetchJson(url);
 
         if (!res.success || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="8" class="text-center">No hay viajes registrados.</td></tr>';
@@ -195,8 +198,7 @@ async function loadConductores() {
     tbody.innerHTML = '<tr><td colspan="8" class="text-center">Cargando...</td></tr>';
 
     try {
-        const response = await fetch(`${API_URL}/conductores`);
-        const res = await response.json();
+        const res = await safeFetchJson(`${API_URL}/conductores`);
 
         if (!res.success || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="8" class="text-center">No hay conductores.</td></tr>';
@@ -231,8 +233,7 @@ async function loadUnidades() {
     tbody.innerHTML = '<tr><td colspan="6" class="text-center">Cargando...</td></tr>';
 
     try {
-        const response = await fetch(`${API_URL}/vehiculos`);
-        const res = await response.json();
+        const res = await safeFetchJson(`${API_URL}/vehiculos`);
 
         if (!res.success || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center">No hay vehículos registrados.</td></tr>';
@@ -261,8 +262,7 @@ async function loadDestinos() {
     tbody.innerHTML = '<tr><td colspan="6" class="text-center">Cargando...</td></tr>';
 
     try {
-        const response = await fetch(`${API_URL}/lugares`);
-        const res = await response.json();
+        const res = await safeFetchJson(`${API_URL}/lugares`);
 
         if (!res.success || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center">No hay lugares registrados.</td></tr>';
@@ -291,8 +291,7 @@ async function loadUbicacionesGPS() {
     tbody.innerHTML = '<tr><td colspan="8" class="text-center">Cargando...</td></tr>';
 
     try {
-        const response = await fetch(`${API_URL}/ubicaciones/recientes`);
-        const res = await response.json();
+        const res = await safeFetchJson(`${API_URL}/ubicaciones/recientes`);
 
         if (!res.success || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="8" class="text-center">No hay viajes transmitiendo GPS actualmente.</td></tr>';
@@ -323,8 +322,8 @@ async function loadUbicacionesGPS() {
 // ----------------------------------------------------
 async function viewTripDetail(idViaje) {
     try {
-        const response = await fetch(`/api/viajes/${idViaje}`);
-        const res = await response.json();
+        const baseBackendUrl = window.location.hostname.includes('onrender.com') ? 'https://gerenciamiento-viajes-backend.onrender.com' : '';
+        const res = await safeFetchJson(`${baseBackendUrl}/api/viajes/${idViaje}`);
         if (!res.success) return alert(res.message);
 
         const v = res.data;
@@ -401,11 +400,11 @@ function openConductorModal(conductorData = null) {
             telefono: document.getElementById('cond-telefono').value
         };
 
-        const res = await fetch(`${API_URL}/conductores`, {
+        const res = await safeFetchJson(`${API_URL}/conductores`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        }).then(r => r.json());
+        });
 
         if (res.success) {
             closeModal();
@@ -417,7 +416,7 @@ function openConductorModal(conductorData = null) {
 }
 
 async function editConductor(id) {
-    const res = await fetch(`${API_URL}/conductores`).then(r => r.json());
+    const res = await safeFetchJson(`${API_URL}/conductores`);
     const item = res.data.find(c => c.id_conductores === id);
     if (item) openConductorModal(item);
 }
@@ -459,11 +458,11 @@ function openVehiculoModal(vehiculoData = null) {
             kilometraje_actual: document.getElementById('veh-km').value
         };
 
-        const res = await fetch(`${API_URL}/vehiculos`, {
+        const res = await safeFetchJson(`${API_URL}/vehiculos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        }).then(r => r.json());
+        });
 
         if (res.success) {
             closeModal();
@@ -475,7 +474,7 @@ function openVehiculoModal(vehiculoData = null) {
 }
 
 async function editVehiculo(id) {
-    const res = await fetch(`${API_URL}/vehiculos`).then(r => r.json());
+    const res = await safeFetchJson(`${API_URL}/vehiculos`);
     const item = res.data.find(v => v.id_vehiculos === id);
     if (item) openVehiculoModal(item);
 }
@@ -517,11 +516,11 @@ function openLugarModal(lugarData = null) {
             longitud: document.getElementById('lug-lng').value
         };
 
-        const res = await fetch(`${API_URL}/lugares`, {
+        const res = await safeFetchJson(`${API_URL}/lugares`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        }).then(r => r.json());
+        });
 
         if (res.success) {
             closeModal();
@@ -533,7 +532,7 @@ function openLugarModal(lugarData = null) {
 }
 
 async function editLugar(id) {
-    const res = await fetch(`${API_URL}/lugares`).then(r => r.json());
+    const res = await safeFetchJson(`${API_URL}/lugares`);
     const item = res.data.find(l => l.id_lugares === id);
     if (item) openLugarModal(item);
 }
