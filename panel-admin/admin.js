@@ -10,6 +10,10 @@ const API_URL = getApiUrl();
 let currentAdmin = null;
 let currentModule = 'viajes';
 
+let mainGpsMap = null;
+let mainGpsMarkers = [];
+let modalTripMap = null;
+
 // Helper para llamadas fetch seguras
 async function safeFetchJson(url, options = {}) {
     const res = await fetch(url, options);
@@ -184,7 +188,7 @@ async function loadViajes() {
                 <td><span class="badge badge-${v.estado_nombre}">${v.estado_nombre}</span></td>
                 <td>${v.kilometros_recorridos !== null ? v.kilometros_recorridos + ' km' : '-'}</td>
                 <td>
-                    <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="viewTripDetail(${v.id_viajes})">Detalles</button>
+                    <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="viewTripDetail(${v.id_viajes})">Detalles y Mapa</button>
                 </td>
             </tr>
         `).join('');
@@ -286,39 +290,100 @@ async function loadDestinos() {
     }
 }
 
+// ----------------------------------------------------
+// MONITOREO GPS CON MAPA INTERACTIVO LEAFLET
+// ----------------------------------------------------
 async function loadUbicacionesGPS() {
     const tbody = document.getElementById('tbody-ubicaciones');
     tbody.innerHTML = '<tr><td colspan="8" class="text-center">Cargando...</td></tr>';
+
+    initMainGpsMap();
 
     try {
         const res = await safeFetchJson(`${API_URL}/ubicaciones/recientes`);
 
         if (!res.success || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="8" class="text-center">No hay viajes transmitiendo GPS actualmente.</td></tr>';
+            clearMainMapMarkers();
             return;
         }
 
-        tbody.innerHTML = res.data.map(u => `
-            <tr>
-                <td><strong>${u.folio}</strong></td>
-                <td>${u.conductor_nombre}</td>
-                <td>${u.vehiculo_nombre} (${u.numero_economico})</td>
-                <td>${Number(u.latitud).toFixed(6)}</td>
-                <td>${Number(u.longitud).toFixed(6)}</td>
-                <td>${u.precision_metros ? Math.round(u.precision_metros) + ' m' : '-'}</td>
-                <td>${new Date(u.fecha_gps).toLocaleString('es-MX')}</td>
-                <td>
-                    <a href="https://maps.google.com/?q=${u.latitud},${u.longitud}" target="_blank" class="btn btn-primary" style="padding:4px 8px; font-size:11px; text-decoration:none;">Abrir Mapa</a>
-                </td>
-            </tr>
-        `).join('');
+        clearMainMapMarkers();
+        const bounds = [];
+
+        tbody.innerHTML = res.data.map((u, idx) => {
+            const lat = Number(u.latitud);
+            const lng = Number(u.longitud);
+            bounds.push([lat, lng]);
+
+            // Agregar marcador en Leaflet Map
+            if (mainGpsMap) {
+                const marker = L.marker([lat, lng]).addTo(mainGpsMap)
+                    .bindPopup(`
+                        <div style="font-size:12px; font-family:sans-serif;">
+                            <strong>Folio: ${u.folio}</strong><br>
+                            Conductor: ${u.conductor_nombre}<br>
+                            Unidad: ${u.vehiculo_nombre} (${u.numero_economico})<br>
+                            Reporte: ${new Date(u.fecha_gps).toLocaleTimeString('es-MX')}
+                        </div>
+                    `);
+                mainGpsMarkers.push(marker);
+            }
+
+            return `
+                <tr>
+                    <td><strong>${u.folio}</strong></td>
+                    <td>${u.conductor_nombre}</td>
+                    <td>${u.vehiculo_nombre} (${u.numero_economico})</td>
+                    <td>${lat.toFixed(6)}</td>
+                    <td>${lng.toFixed(6)}</td>
+                    <td>${u.precision_metros ? Math.round(u.precision_metros) + ' m' : '-'}</td>
+                    <td>${new Date(u.fecha_gps).toLocaleString('es-MX')}</td>
+                    <td>
+                        <button class="btn btn-primary" style="padding:4px 8px; font-size:11px;" onclick="centerMainMap(${lat}, ${lng})">Ubicar en Mapa</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        if (mainGpsMap && bounds.length > 0) {
+            mainGpsMap.fitBounds(bounds, { padding: [40, 40] });
+        }
     } catch (err) {
         tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger">Error: ${err.message}</td></tr>`;
     }
 }
 
+function initMainGpsMap() {
+    if (!mainGpsMap && typeof L !== 'undefined') {
+        const mapContainer = document.getElementById('admin-gps-map');
+        if (mapContainer) {
+            mainGpsMap = L.map('admin-gps-map').setView([19.8456, -90.5312], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap'
+            }).addTo(mainGpsMap);
+        }
+    } else if (mainGpsMap) {
+        setTimeout(() => mainGpsMap.invalidateSize(), 200);
+    }
+}
+
+function clearMainMapMarkers() {
+    if (mainGpsMarkers && mainGpsMarkers.length) {
+        mainGpsMarkers.forEach(m => mainGpsMap && mainGpsMap.removeLayer(m));
+        mainGpsMarkers = [];
+    }
+}
+
+function centerMainMap(lat, lng) {
+    if (mainGpsMap) {
+        mainGpsMap.setView([lat, lng], 15);
+    }
+}
+
 // ----------------------------------------------------
-// MODALES DE EDICIÓN Y DETALLES CON REGISTRO DE PARADAS
+// MODALES DE EDICIÓN Y DETALLES CON RUTA EN MAPA
 // ----------------------------------------------------
 async function viewTripDetail(idViaje) {
     try {
@@ -364,22 +429,51 @@ async function viewTripDetail(idViaje) {
                 <div><strong>Salida:</strong> ${v.hora_salida ? new Date(v.hora_salida).toLocaleString('es-MX') : 'Pendiente'}</div>
                 <div><strong>Llegada:</strong> ${v.hora_llegada ? new Date(v.hora_llegada).toLocaleString('es-MX') : 'Pendiente'}</div>
                 
-                <div style="margin-top:8px; border-top:1px solid #e2e8f0; padding-top:8px;">
+                <div style="margin-top:6px; border-top:1px solid #e2e8f0; padding-top:8px;">
                     <strong>Historial de Paradas del Viaje:</strong>
                     ${paradasHtml}
                 </div>
 
-                ${v.ultima_ubicacion ? `
-                    <div style="margin-top:8px; padding:10px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px;">
-                        <strong>Última Ubicación GPS:</strong><br>
-                        Lat: ${v.ultima_ubicacion.latitud}, Lng: ${v.ultima_ubicacion.longitud}<br>
-                        Fecha: ${new Date(v.ultima_ubicacion.fecha_gps).toLocaleString('es-MX')}
-                    </div>
-                ` : ''}
+                <div style="margin-top:6px; border-top:1px solid #e2e8f0; padding-top:8px;">
+                    <strong>Mapa de Rastreo GPS y Ruta Recorrida:</strong>
+                    <div id="modal-trip-map" style="height: 220px; width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 6px;"></div>
+                </div>
             </div>
         `;
 
         openModal('Detalles del Viaje', html);
+
+        // Cargar mapa e historia de ubicaciones en el Modal
+        setTimeout(async () => {
+            if (typeof L !== 'undefined') {
+                const mapEl = document.getElementById('modal-trip-map');
+                if (mapEl) {
+                    const detailMap = L.map('modal-trip-map').setView([19.8456, -90.5312], 12);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(detailMap);
+
+                    try {
+                        const locationsRes = await safeFetchJson(`${baseBackendUrl}/api/admin/viajes/${idViaje}/ubicaciones`);
+                        if (locationsRes.success && locationsRes.data.length > 0) {
+                            const latLngs = locationsRes.data.map(p => [Number(p.latitud), Number(p.longitud)]);
+                            
+                            // Trazar línea de ruta (Polyline)
+                            L.polyline(latLngs, { color: '#2563eb', weight: 4 }).addTo(detailMap);
+
+                            // Marcador Inicio
+                            L.marker(latLngs[0]).addTo(detailMap).bindPopup('Inicio del Viaje');
+
+                            // Marcador Última Posición
+                            if (latLngs.length > 1) {
+                                L.marker(latLngs[latLngs.length - 1]).addTo(detailMap).bindPopup('Última Posición GPS');
+                            }
+
+                            detailMap.fitBounds(L.polyline(latLngs).getBounds(), { padding: [20, 20] });
+                        }
+                    } catch (err) {}
+                }
+            }
+        }, 200);
+
     } catch (e) {
         alert('Error al consultar detalles: ' + e.message);
     }

@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel Administrativo - Gerenciamiento de Viajes</title>
+    <!-- Leaflet.js CSS para Mapa Interactivo -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="styles.css">
     <!-- Google Fonts: Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,7 +14,7 @@
 </head>
 <body>
     <div id="admin-app">
-        <!-- Pantalla de Login (Si no hay sesión) -->
+        <!-- Pantalla de Login -->
         <div id="view-login" class="login-wrapper">
             <div class="login-card">
                 <div class="login-header">
@@ -223,12 +225,15 @@
                         </div>
                     </section>
 
-                    <!-- Módulo 5: Ubicaciones GPS en Vivo -->
+                    <!-- Módulo 5: Ubicaciones GPS en Vivo con Mapa Interactivo Leaflet -->
                     <section id="mod-ubicaciones" class="module-content hidden">
                         <div class="table-toolbar">
                             <h3>Monitoreo GPS en Tiempo Real</h3>
                             <button id="btn-refresh-gps" class="btn btn-secondary">Refrescar Coordenadas</button>
                         </div>
+
+                        <!-- Mapa Interactivo en Vivo -->
+                        <div id="admin-gps-map" style="height: 380px; width: 100%; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 20px; background: #f8fafc; z-index: 1;"></div>
 
                         <div class="table-card">
                             <table class="data-table">
@@ -241,7 +246,7 @@
                                         <th>Longitud</th>
                                         <th>Precisión</th>
                                         <th>Último Reporte GPS</th>
-                                        <th>Ver Mapa</th>
+                                        <th>Acción</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-ubicaciones">
@@ -266,6 +271,8 @@
         </div>
     </div>
 
+    <!-- Script Leaflet.js para Mapas Interactivos -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="admin.js"></script>
 </body>
 </html>
