@@ -86,7 +86,21 @@ CREATE TABLE IF NOT EXISTS ubicaciones_viaje (
     creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- 7. Tabla: historial_estados_viaje
+-- 7. Tabla: paradas_viaje (NUEVA: Registro de Paradas durante el Viaje)
+CREATE TABLE IF NOT EXISTS paradas_viaje (
+    id_paradas_viaje INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_viajes INTEGER NOT NULL REFERENCES viajes(id_viajes) ON DELETE CASCADE,
+    motivo_parada VARCHAR(150) NOT NULL,
+    latitud REAL CHECK (latitud IS NULL OR (latitud >= -90.0 AND latitud <= 90.0)),
+    longitud REAL CHECK (longitud IS NULL OR (longitud >= -180.0 AND longitud <= 180.0)),
+    hora_inicio DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    hora_fin DATETIME NULL,
+    duracion_minutos INTEGER NULL CHECK (duracion_minutos IS NULL OR duracion_minutos >= 0),
+    observaciones TEXT,
+    creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 8. Tabla: historial_estados_viaje
 CREATE TABLE IF NOT EXISTS historial_estados_viaje (
     id_historial_estado_viaje INTEGER PRIMARY KEY AUTOINCREMENT,
     id_viajes INTEGER NOT NULL REFERENCES viajes(id_viajes) ON DELETE CASCADE,
@@ -97,7 +111,7 @@ CREATE TABLE IF NOT EXISTS historial_estados_viaje (
     CONSTRAINT chk_historial_estado_diferente CHECK (id_estado_anterior IS NULL OR id_estado_anterior <> id_estado_nuevo)
 );
 
--- 8. Tabla: usuarios_telegram
+-- 9. Tabla: usuarios_telegram
 CREATE TABLE IF NOT EXISTS usuarios_telegram (
     id_usuario_telegram INTEGER PRIMARY KEY AUTOINCREMENT,
     telegram_user_id INTEGER NOT NULL UNIQUE,
@@ -113,7 +127,7 @@ CREATE TABLE IF NOT EXISTS usuarios_telegram (
     actualizado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- 9. Tabla: usuarios_admin
+-- 10. Tabla: usuarios_admin
 CREATE TABLE IF NOT EXISTS usuarios_admin (
     id_usuarios_admin INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre VARCHAR(150) NOT NULL,
@@ -136,6 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_viajes_estado ON viajes(id_estado_viaje);
 CREATE INDEX IF NOT EXISTS idx_viajes_fecha ON viajes(fecha);
 CREATE INDEX IF NOT EXISTS idx_ubicaciones_viaje_viaje ON ubicaciones_viaje(id_viajes);
 CREATE INDEX IF NOT EXISTS idx_ubicaciones_viaje_fecha ON ubicaciones_viaje(fecha_gps);
+CREATE INDEX IF NOT EXISTS idx_paradas_viaje_viaje ON paradas_viaje(id_viajes);
 CREATE INDEX IF NOT EXISTS idx_historial_viaje ON historial_estados_viaje(id_viajes);
 CREATE INDEX IF NOT EXISTS idx_usuarios_telegram_user ON usuarios_telegram(telegram_user_id);
 CREATE INDEX IF NOT EXISTS idx_usuarios_telegram_conductor ON usuarios_telegram(id_conductores);

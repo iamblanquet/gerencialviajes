@@ -1,6 +1,5 @@
 // Configuración Global y Estado de la App
 function getApiUrl() {
-    // Si estamos desplegados en Render.com, redirigir llamadas de API al Web Service backend de Render
     if (window.location.hostname.includes('onrender.com')) {
         return 'https://gerenciamiento-viajes-backend.onrender.com/api';
     }
@@ -13,9 +12,13 @@ let tg = window.Telegram?.WebApp || null;
 let currentTelegramUser = null;
 let currentConductor = null;
 let currentActiveTrip = null;
+let currentActiveStop = null;
+
 let gpsWatchId = null;
 let gpsIntervalTimer = null;
 let lastGpsPosition = null;
+let stopTimerInterval = null;
+
 let catalogVehicles = [];
 let catalogPlaces = [];
 
@@ -30,10 +33,11 @@ async function safeFetchJson(url, options = {}) {
     return await res.json();
 }
 
-// Inicialización cuando carga la página
+// Inicialización
 document.addEventListener('DOMContentLoaded', () => {
     initTelegramWebApp();
     setupEventListeners();
+    setupNetworkStatusListeners();
 });
 
 function initTelegramWebApp() {
@@ -45,7 +49,7 @@ function initTelegramWebApp() {
     const initData = tg?.initData || '';
     
     if (initData) {
-        document.getElementById('telegram-badge').textContent = 'TELEGRAM REAL ✅';
+        document.getElementById('telegram-badge').textContent = 'Telegram Real';
         document.getElementById('telegram-badge').className = 'badge badge-success';
         autenticarTelegram(initData, null);
     } else {
@@ -58,7 +62,7 @@ function initTelegramWebApp() {
             } catch (e) {}
         }
         
-        document.getElementById('telegram-badge').textContent = 'Modo Telegram Web';
+        document.getElementById('telegram-badge').textContent = 'Modo Web';
         document.getElementById('telegram-badge').className = 'badge badge-info';
         showView('view-demo-selector');
     }
@@ -89,10 +93,17 @@ function setupEventListeners() {
 
     document.getElementById('form-create-trip').addEventListener('submit', handleCreateTrip);
 
+    // Acciones del Viaje
     document.getElementById('btn-start-trip').addEventListener('click', handleStartTrip);
     document.getElementById('btn-open-finish-modal').addEventListener('click', openFinishModal);
     document.getElementById('btn-close-modal').addEventListener('click', closeFinishModal);
     document.getElementById('form-finish-trip').addEventListener('submit', handleFinishTrip);
+
+    // Acciones de Parada
+    document.getElementById('btn-open-stop-modal').addEventListener('click', openStopModal);
+    document.getElementById('btn-close-stop-modal').addEventListener('click', closeStopModal);
+    document.getElementById('form-register-stop').addEventListener('submit', handleRegisterStop);
+    document.getElementById('btn-resume-trip').addEventListener('click', handleResumeTrip);
 
     document.getElementById('finish-km-final').addEventListener('input', (e) => {
         if (!currentActiveTrip) return;
@@ -106,6 +117,7 @@ function setupEventListeners() {
 
     document.getElementById('btn-new-trip-again').addEventListener('click', () => {
         currentActiveTrip = null;
+        currentActiveStop = null;
         stopGpsTracking();
         loadNewTripForm();
     });
@@ -167,7 +179,7 @@ async function handleRegisterDriver(e) {
             return showAlert(res.message, 'danger');
         }
 
-        showAlert('¡Conductor registrado y vinculado a Telegram exitosamente!', 'success');
+        showAlert('Conductor registrado y vinculado a Telegram exitosamente.', 'success');
         currentTelegramUser = res.data.usuario_telegram;
         currentConductor = res.data.conductor;
 
@@ -186,6 +198,7 @@ async function checkActiveTripOrLoadForm() {
 
         if (res.success && res.data) {
             currentActiveTrip = res.data;
+            currentActiveStop = res.data.parada_activa || null;
             renderActiveTripView();
         } else {
             await loadNewTripForm();
@@ -243,7 +256,7 @@ async function loadNewTripForm() {
 }
 
 // ----------------------------------------------------
-// CREACIÓN Y GESTIÓN DE VIAJES
+// CREACIÓN Y GESTIÓN DE VIAJES Y PARADAS
 // ----------------------------------------------------
 async function handleCreateTrip(e) {
     e.preventDefault();
@@ -291,7 +304,7 @@ async function handleCreateTrip(e) {
             return showAlert(res.message, 'danger');
         }
 
-        showAlert(`¡Viaje registrado! Folio: ${res.data.folio}`, 'success');
+        showAlert(`Viaje registrado. Folio: ${res.data.folio}`, 'success');
         currentActiveTrip = res.data;
         renderActiveTripView();
     } catch (err) {
@@ -313,31 +326,49 @@ function renderActiveTripView() {
 
     const statusBadge = document.getElementById('active-status-badge');
     const btnStart = document.getElementById('btn-start-trip');
+    const btnStopModal = document.getElementById('btn-open-stop-modal');
     const btnFinish = document.getElementById('btn-open-finish-modal');
     const btnNewAgain = document.getElementById('btn-new-trip-again');
     const summarySection = document.getElementById('active-summary-section');
+    const stopCard = document.getElementById('active-stop-card');
 
     btnStart.classList.add('hidden');
+    btnStopModal.classList.add('hidden');
     btnFinish.classList.add('hidden');
     btnNewAgain.classList.add('hidden');
     summarySection.classList.add('hidden');
+    stopCard.classList.add('hidden');
 
-    if (currentActiveTrip.id_estado_viaje === 2) {
+    if (currentActiveTrip.id_estado_viaje === 2) { // PENDIENTE
         statusBadge.textContent = 'PENDIENTE';
         statusBadge.className = 'badge badge-warning';
         btnStart.classList.remove('hidden');
         stopGpsTracking();
-    } else if (currentActiveTrip.id_estado_viaje === 3) {
-        statusBadge.textContent = 'EN_CURSO';
-        statusBadge.className = 'badge badge-success';
-        btnFinish.classList.remove('hidden');
+    } else if (currentActiveTrip.id_estado_viaje === 3 || currentActiveTrip.id_estado_viaje === 4) { // EN_CURSO (3) o PAUSADO (4)
+        if (currentActiveTrip.parada_activa || currentActiveTrip.id_estado_viaje === 4) {
+            statusBadge.textContent = 'EN PARADA';
+            statusBadge.className = 'badge badge-warning';
+            stopCard.classList.remove('hidden');
+            
+            const stopReason = currentActiveTrip.parada_activa ? currentActiveTrip.parada_activa.motivo_parada : 'Parada activa';
+            document.getElementById('stop-motivo-text').textContent = `Motivo: ${stopReason}`;
+            startStopTimer(currentActiveTrip.parada_activa ? currentActiveTrip.parada_activa.hora_inicio : null);
+        } else {
+            statusBadge.textContent = 'EN_CURSO';
+            statusBadge.className = 'badge badge-success';
+            btnStopModal.classList.remove('hidden');
+            btnFinish.classList.remove('hidden');
+            stopStopTimer();
+        }
+
         startGpsTracking();
-    } else if (currentActiveTrip.id_estado_viaje === 5) {
+    } else if (currentActiveTrip.id_estado_viaje === 5) { // FINALIZADO
         statusBadge.textContent = 'FINALIZADO';
         statusBadge.className = 'badge badge-info';
         btnNewAgain.classList.remove('hidden');
         summarySection.classList.remove('hidden');
         stopGpsTracking();
+        stopStopTimer();
         renderSummaryDetails();
     }
 }
@@ -356,12 +387,113 @@ async function handleStartTrip() {
             return showAlert(res.message, 'danger');
         }
 
-        showAlert('¡Viaje Iniciado! Rastreo GPS Activado.', 'success');
+        showAlert('Viaje iniciado. Transmisión GPS activada.', 'success');
         currentActiveTrip = res.data;
         renderActiveTripView();
     } catch (err) {
         showLoading(false);
         showAlert('Error al iniciar el viaje: ' + err.message, 'danger');
+    }
+}
+
+// ----------------------------------------------------
+// REGISTRO Y REANUDACIÓN DE PARADAS
+// ----------------------------------------------------
+function openStopModal() {
+    document.getElementById('modal-stop-trip').classList.remove('hidden');
+}
+
+function closeStopModal() {
+    document.getElementById('modal-stop-trip').classList.add('hidden');
+}
+
+async function handleRegisterStop(e) {
+    e.preventDefault();
+    if (!currentActiveTrip) return;
+
+    const motivo = document.getElementById('stop-motivo-select').value;
+    const observaciones = document.getElementById('stop-observaciones').value;
+
+    const payload = {
+        motivo_parada: motivo,
+        latitud: lastGpsPosition ? lastGpsPosition.latitud : null,
+        longitud: lastGpsPosition ? lastGpsPosition.longitud : null,
+        observaciones
+    };
+
+    showLoading(true);
+    closeStopModal();
+
+    try {
+        const res = await safeFetchJson(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/paradas`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        showLoading(false);
+
+        if (!res.success) {
+            return showAlert(res.message, 'danger');
+        }
+
+        showAlert('Parada registrada correctamente.', 'success');
+        currentActiveStop = res.data;
+        currentActiveTrip.id_estado_viaje = 4;
+        currentActiveTrip.parada_activa = res.data;
+        renderActiveTripView();
+    } catch (err) {
+        showLoading(false);
+        showAlert('Error al registrar parada: ' + err.message, 'danger');
+    }
+}
+
+async function handleResumeTrip() {
+    if (!currentActiveTrip || !currentActiveTrip.parada_activa) return;
+
+    const idParada = currentActiveTrip.parada_activa.id_paradas_viaje;
+    showLoading(true);
+
+    try {
+        const res = await safeFetchJson(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/paradas/${idParada}/finalizar`, {
+            method: 'POST'
+        });
+        showLoading(false);
+
+        if (!res.success) {
+            return showAlert(res.message, 'danger');
+        }
+
+        showAlert('Parada finalizada. Viaje reanudado.', 'success');
+        currentActiveTrip.id_estado_viaje = 3;
+        currentActiveTrip.parada_activa = null;
+        currentActiveStop = null;
+        renderActiveTripView();
+    } catch (err) {
+        showLoading(false);
+        showAlert('Error al reanudar viaje: ' + err.message, 'danger');
+    }
+}
+
+function startStopTimer(startTimeIso) {
+    stopStopTimer();
+    const startTime = startTimeIso ? new Date(startTimeIso).getTime() : Date.now();
+
+    function updateTimer() {
+        const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+        const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+        const ss = String(elapsedSec % 60).padStart(2, '0');
+        const timerEl = document.getElementById('stop-timer');
+        if (timerEl) timerEl.textContent = `${mm}:${ss}`;
+    }
+
+    updateTimer();
+    stopTimerInterval = setInterval(updateTimer, 1000);
+}
+
+function stopStopTimer() {
+    if (stopTimerInterval) {
+        clearInterval(stopTimerInterval);
+        stopTimerInterval = null;
     }
 }
 
@@ -400,7 +532,7 @@ async function handleFinishTrip(e) {
             return showAlert(res.message, 'danger');
         }
 
-        showAlert('¡Viaje Finalizado Exitosamente!', 'success');
+        showAlert('Viaje finalizado exitosamente.', 'success');
         currentActiveTrip = res.data;
         renderActiveTripView();
     } catch (err) {
@@ -428,18 +560,20 @@ function renderSummaryDetails() {
 }
 
 // ----------------------------------------------------
-// RASTREO GPS (navigator.geolocation.watchPosition)
+// RASTREO GPS CADA 5 MINUTOS Y COLA OFFLINE
 // ----------------------------------------------------
 function startGpsTracking() {
     if (!navigator.geolocation) {
-        document.getElementById('gps-status-text').textContent = 'Geolocalización no soportada';
+        document.getElementById('gps-status-text').textContent = 'Geolocalización no disponible';
         return;
     }
 
     const pulse = document.getElementById('gps-pulse');
     const statusText = document.getElementById('gps-status-text');
     pulse.classList.add('active');
-    statusText.textContent = 'GPS Transmitiendo (Cada 15s)';
+    statusText.textContent = 'GPS Transmitiendo (Cada 5 min)';
+
+    updateNetworkBadge();
 
     if (gpsWatchId === null) {
         gpsWatchId = navigator.geolocation.watchPosition(
@@ -455,18 +589,18 @@ function startGpsTracking() {
 
                 document.getElementById('gps-coords-display').textContent =
                     `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Prec: ${Math.round(lastGpsPosition.precision_metros)}m`;
-                document.getElementById('gps-last-update').textContent = new Date().toLocaleTimeString();
             },
             (err) => {
                 console.warn('[GPS WARNING]', err.message);
-                document.getElementById('gps-status-text').textContent = 'Esperando señal GPS...';
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
     }
 
+    // Intervalo de envío cada 5 minutos (300,000 ms)
     if (!gpsIntervalTimer) {
-        gpsIntervalTimer = setInterval(sendGpsLocationToBackend, 15000);
+        sendGpsLocationToBackend(); // Enviar primera posición de inmediato
+        gpsIntervalTimer = setInterval(sendGpsLocationToBackend, 300000);
     }
 }
 
@@ -487,7 +621,12 @@ function stopGpsTracking() {
 }
 
 async function sendGpsLocationToBackend() {
-    if (!currentActiveTrip || currentActiveTrip.id_estado_viaje !== 3 || !lastGpsPosition) return;
+    if (!currentActiveTrip || !lastGpsPosition) return;
+
+    if (!navigator.onLine) {
+        saveLocationOffline(lastGpsPosition);
+        return;
+    }
 
     try {
         await safeFetchJson(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/ubicaciones`, {
@@ -495,8 +634,84 @@ async function sendGpsLocationToBackend() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(lastGpsPosition)
         });
+        
+        // Sincronizar cola offline acumulada si existe
+        await flushOfflineLocations();
     } catch (e) {
-        console.error('[GPS SEND ERROR]', e);
+        saveLocationOffline(lastGpsPosition);
+    }
+}
+
+// Manejo de Cola Offline en localStorage
+function saveLocationOffline(location) {
+    let queue = [];
+    try {
+        queue = JSON.parse(localStorage.getItem('gps_offline_queue') || '[]');
+    } catch (e) {}
+
+    queue.push(location);
+    localStorage.setItem('gps_offline_queue', JSON.stringify(queue));
+    updateOfflineQueueUI(queue.length);
+}
+
+async function flushOfflineLocations() {
+    let queue = [];
+    try {
+        queue = JSON.parse(localStorage.getItem('gps_offline_queue') || '[]');
+    } catch (e) {}
+
+    if (!queue.length || !currentActiveTrip) return;
+
+    try {
+        const res = await safeFetchJson(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/ubicaciones`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(queue)
+        });
+
+        if (res.success) {
+            localStorage.removeItem('gps_offline_queue');
+            updateOfflineQueueUI(0);
+            showAlert(`Sincronizadas ${queue.length} ubicación(es) guardadas offline.`, 'success');
+        }
+    } catch (e) {
+        console.error('[OFFLINE SYNC ERROR]', e);
+    }
+}
+
+function setupNetworkStatusListeners() {
+    window.addEventListener('online', () => {
+        updateNetworkBadge();
+        flushOfflineLocations();
+    });
+
+    window.addEventListener('offline', () => {
+        updateNetworkBadge();
+    });
+}
+
+function updateNetworkBadge() {
+    const badge = document.getElementById('gps-network-badge');
+    if (!badge) return;
+
+    if (navigator.onLine) {
+        badge.textContent = 'Conexión Activa';
+        badge.className = 'badge badge-success';
+    } else {
+        badge.textContent = 'Sin Conexión (Offline)';
+        badge.className = 'badge badge-warning';
+    }
+}
+
+function updateOfflineQueueUI(count) {
+    const queueText = document.getElementById('offline-queue-text');
+    if (!queueText) return;
+
+    if (count > 0) {
+        queueText.textContent = `Guardadas ${count} ubicación(es) localmente. Se enviarán al reconectar.`;
+        queueText.classList.remove('hidden');
+    } else {
+        queueText.classList.add('hidden');
     }
 }
 

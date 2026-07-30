@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel Administrativo - Gerenciamiento de Viajes</title>
     <link rel="stylesheet" href="styles.css">
-    <!-- Google Fonts -->
+    <!-- Google Fonts: Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div id="admin-app">
@@ -16,7 +16,9 @@
         <div id="view-login" class="login-wrapper">
             <div class="login-card">
                 <div class="login-header">
-                    <div class="login-logo">🛡️</div>
+                    <div class="login-logo">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
                     <h2>Panel Administrativo</h2>
                     <p>Gerenciamiento de Viajes de Flotilla</p>
                 </div>
@@ -37,34 +39,46 @@
             </div>
         </div>
 
-        <!-- Layout del Dashboard Principal (Sidebar + Content Header) -->
+        <!-- Layout del Dashboard Principal -->
         <div id="view-dashboard" class="dashboard-layout hidden">
             <!-- Sidebar Navigation -->
             <aside class="sidebar">
                 <div class="sidebar-brand">
-                    <span class="brand-icon">🚛</span>
+                    <span class="brand-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+                    </span>
                     <span class="brand-name">Flotilla Admin</span>
                 </div>
 
                 <nav class="sidebar-menu">
                     <a href="#viajes" class="menu-item active" data-module="viajes">
-                        <span class="icon">📑</span>
+                        <span class="icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        </span>
                         <span>Viajes</span>
                     </a>
                     <a href="#conductores" class="menu-item" data-module="conductores">
-                        <span class="icon">👨‍✈️</span>
+                        <span class="icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        </span>
                         <span>Conductores</span>
                     </a>
                     <a href="#unidades" class="menu-item" data-module="unidades">
-                        <span class="icon">🚚</span>
+                        <span class="icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                        </span>
                         <span>Unidades</span>
                     </a>
                     <a href="#destinos" class="menu-item" data-module="destinos">
-                        <span class="icon">📍</span>
+                        <span class="icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        </span>
                         <span>Destinos</span>
                     </a>
                     <a href="#ubicaciones" class="menu-item" data-module="ubicaciones">
-                        <span class="icon">📡</span>
+                        <span class="icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                        </span>
                         <span>Ubicaciones GPS</span>
                     </a>
                 </nav>
@@ -78,7 +92,6 @@
 
             <!-- Main Workspace Area -->
             <div class="main-wrapper">
-                <!-- Header Superior con datos del Administrador -->
                 <header class="top-header">
                     <div class="page-title">
                         <h1 id="module-title">Gestión de Viajes</h1>
@@ -88,16 +101,10 @@
                             <span id="user-display-name" class="user-name">Administrador</span>
                             <span id="user-display-role" class="user-role">ADMINISTRADOR</span>
                         </div>
-                        <button id="btn-logout" class="btn btn-logout" title="Cerrar Sesión">
-                            <span>🚪</span> Salir
-                        </button>
+                        <button id="btn-logout" class="btn btn-logout" title="Cerrar Sesión">Cerrar Sesión</button>
                     </div>
                 </header>
 
-                <!-- Toast / Notification container -->
-                <div id="toast-container" class="toast-container"></div>
-
-                <!-- Contenido de Módulos -->
                 <main class="content-area">
                     <!-- Módulo 1: Viajes -->
                     <section id="mod-viajes" class="module-content">
@@ -107,11 +114,12 @@
                                     <option value="">Todos los Estados</option>
                                     <option value="PENDIENTE">PENDIENTE</option>
                                     <option value="EN_CURSO">EN_CURSO</option>
+                                    <option value="PAUSADO">PAUSADO</option>
                                     <option value="FINALIZADO">FINALIZADO</option>
                                     <option value="CANCELADO">CANCELADO</option>
                                 </select>
                             </div>
-                            <button id="btn-refresh-viajes" class="btn btn-secondary">🔄 Actualizar</button>
+                            <button id="btn-refresh-viajes" class="btn btn-secondary">Actualizar Lista</button>
                         </div>
 
                         <div class="table-card">
@@ -139,7 +147,7 @@
                     <section id="mod-conductores" class="module-content hidden">
                         <div class="table-toolbar">
                             <h3>Directorio de Conductores</h3>
-                            <button id="btn-add-conductor" class="btn btn-primary">➕ Nuevo Conductor</button>
+                            <button id="btn-add-conductor" class="btn btn-primary">Nuevo Conductor</button>
                         </div>
 
                         <div class="table-card">
@@ -167,7 +175,7 @@
                     <section id="mod-unidades" class="module-content hidden">
                         <div class="table-toolbar">
                             <h3>Flotilla Vehicular</h3>
-                            <button id="btn-add-vehiculo" class="btn btn-primary">➕ Nueva Unidad</button>
+                            <button id="btn-add-vehiculo" class="btn btn-primary">Nueva Unidad</button>
                         </div>
 
                         <div class="table-card">
@@ -193,7 +201,7 @@
                     <section id="mod-destinos" class="module-content hidden">
                         <div class="table-toolbar">
                             <h3>Lugares y Puntos Autorizados</h3>
-                            <button id="btn-add-lugar" class="btn btn-primary">➕ Nuevo Lugar</button>
+                            <button id="btn-add-lugar" class="btn btn-primary">Nuevo Lugar</button>
                         </div>
 
                         <div class="table-card">
@@ -219,7 +227,7 @@
                     <section id="mod-ubicaciones" class="module-content hidden">
                         <div class="table-toolbar">
                             <h3>Monitoreo GPS en Tiempo Real</h3>
-                            <button id="btn-refresh-gps" class="btn btn-secondary">🔄 Refrescar Coordenadas</button>
+                            <button id="btn-refresh-gps" class="btn btn-secondary">Refrescar Coordenadas</button>
                         </div>
 
                         <div class="table-card">
@@ -246,16 +254,14 @@
             </div>
         </div>
 
-        <!-- Modales Dinámicos de Edición / Detalles -->
+        <!-- Modales Dinámicos -->
         <div id="admin-modal" class="modal-backdrop hidden">
             <div class="modal-card">
                 <div class="modal-header">
                     <h3 id="modal-title">Título Modal</h3>
                     <button id="btn-close-admin-modal" class="btn-close">&times;</button>
                 </div>
-                <div id="modal-body">
-                    <!-- Formulario dinámico renderizado por JS -->
-                </div>
+                <div id="modal-body"></div>
             </div>
         </div>
     </div>

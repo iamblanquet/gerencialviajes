@@ -13,7 +13,6 @@ if (!fs.existsSync(dbDir)) {
 const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
-// Auto-inicializar si la base de datos está vacía o no tiene el usuario admin
 function autoInit() {
     try {
         const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conductores'").get();
@@ -31,7 +30,24 @@ function autoInit() {
             console.log('[DB] Base de datos auto-inicializada.');
         }
 
-        // Asegurar que siempre exista al menos el usuario administrador predeterminado
+        // Asegurar que exista la tabla paradas_viaje en bases de datos ya creadas
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS paradas_viaje (
+                id_paradas_viaje INTEGER PRIMARY KEY AUTOINCREMENT,
+                id_viajes INTEGER NOT NULL REFERENCES viajes(id_viajes) ON DELETE CASCADE,
+                motivo_parada VARCHAR(150) NOT NULL,
+                latitud REAL CHECK (latitud IS NULL OR (latitud >= -90.0 AND latitud <= 90.0)),
+                longitud REAL CHECK (longitud IS NULL OR (longitud >= -180.0 AND longitud <= 180.0)),
+                hora_inicio DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                hora_fin DATETIME NULL,
+                duracion_minutos INTEGER NULL CHECK (duracion_minutos IS NULL OR duracion_minutos >= 0),
+                observaciones TEXT,
+                creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_paradas_viaje_viaje ON paradas_viaje(id_viajes);
+        `);
+
+        // Asegurar usuario admin
         const adminCheck = db.prepare("SELECT count(*) as total FROM usuarios_admin WHERE username = 'admin'").get();
         if (!adminCheck || adminCheck.total === 0) {
             console.log('[DB] Creando usuario administrador predeterminado (admin / Admin123!)...');

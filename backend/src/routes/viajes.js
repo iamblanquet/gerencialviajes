@@ -41,7 +41,6 @@ router.post('/', (req, res) => {
             });
         }
 
-        // 1. Validar Conductor y Licencia Vigente
         const driver = db.prepare('SELECT * FROM conductores WHERE id_conductores = ? AND activo = 1').get(Number(id_conductores));
         if (!driver) {
             return res.status(400).json({ success: false, message: 'El conductor seleccionado no existe o está inactivo.' });
@@ -53,7 +52,6 @@ router.post('/', (req, res) => {
             return res.status(400).json({ success: false, message: 'La licencia del conductor está vencida. No se puede crear el viaje.' });
         }
 
-        // 2. Validar Vehículo
         const vehicle = db.prepare('SELECT * FROM vehiculos WHERE id_vehiculos = ? AND activo = 1').get(Number(id_vehiculos));
         if (!vehicle) {
             return res.status(400).json({ success: false, message: 'El vehículo seleccionado no existe o está inactivo.' });
@@ -67,7 +65,6 @@ router.post('/', (req, res) => {
             });
         }
 
-        // 3. Validar Origen y Destino
         if (Number(id_origen) === Number(id_destino)) {
             return res.status(400).json({ success: false, message: 'El lugar de origen debe ser distinto al lugar de destino.' });
         }
@@ -78,7 +75,6 @@ router.post('/', (req, res) => {
             return res.status(400).json({ success: false, message: 'El origen o destino seleccionado no es válido o está inactivo.' });
         }
 
-        // 4. Formatear Acompañantes JSON
         let acompArr = [];
         if (Array.isArray(acompanantes)) {
             acompArr = acompanantes.map(a => String(a).trim()).filter(Boolean);
@@ -87,10 +83,8 @@ router.post('/', (req, res) => {
         }
         const acompJson = JSON.stringify(acompArr);
 
-        // 5. Generar Folio diario
         const folio = generarFolioDiario();
 
-        // 6. Transacción para guardar viaje e historial
         const createTripTransaction = db.transaction(() => {
             const insertTrip = db.prepare(`
                 INSERT INTO viajes (
@@ -134,7 +128,6 @@ router.post('/', (req, res) => {
             WHERE v.id_viajes = ?
         `).get(createdTripId);
 
-        // Enviar Notificación por Telegram si está configurado
         sendTelegramMessage(
             `🆕 *Nuevo Viaje Creado*\n\n` +
             `*Folio:* \`${trip.folio}\`\n` +
@@ -196,7 +189,6 @@ router.post('/:idViaje/iniciar', (req, res) => {
             WHERE v.id_viajes = ?
         `).get(idViaje);
 
-        // Notificación Telegram
         sendTelegramMessage(
             `🚀 *Viaje Iniciado*\n\n` +
             `*Folio:* \`${updatedTrip.folio}\`\n` +
@@ -288,7 +280,6 @@ router.post('/:idViaje/finalizar', (req, res) => {
 
         finishedTrip.ultima_ubicacion = lastLocation || null;
 
-        // Notificación Telegram
         sendTelegramMessage(
             `🏁 *Viaje Finalizado*\n\n` +
             `*Folio:* \`${finishedTrip.folio}\`\n` +
@@ -346,7 +337,12 @@ router.get('/activo', (req, res) => {
             SELECT * FROM ubicaciones_viaje WHERE id_viajes = ? ORDER BY id_ubicaciones_viaje DESC LIMIT 1
         `).get(activeTrip.id_viajes);
 
+        const activeStop = db.prepare(`
+            SELECT * FROM paradas_viaje WHERE id_viajes = ? AND hora_fin IS NULL ORDER BY id_paradas_viaje DESC LIMIT 1
+        `).get(activeTrip.id_viajes);
+
         activeTrip.ultima_ubicacion = lastLocation || null;
+        activeTrip.parada_activa = activeStop || null;
 
         return res.json({ success: true, data: activeTrip });
     } catch (err) {
@@ -381,7 +377,12 @@ router.get('/:idViaje', (req, res) => {
             SELECT * FROM ubicaciones_viaje WHERE id_viajes = ? ORDER BY id_ubicaciones_viaje DESC LIMIT 1
         `).get(idViaje);
 
+        const stops = db.prepare(`
+            SELECT * FROM paradas_viaje WHERE id_viajes = ? ORDER BY id_paradas_viaje DESC
+        `).all(idViaje);
+
         trip.ultima_ubicacion = lastLocation || null;
+        trip.paradas = stops || [];
 
         return res.json({ success: true, data: trip });
     } catch (err) {
@@ -389,51 +390,186 @@ router.get('/:idViaje', (req, res) => {
     }
 });
 
-// POST /api/viajes/:idViaje/ubicaciones
+// POST /api/viajes/:idViaje/ubicaciones - Registrar ubicación GPS (Soporta individual y Lote/Offline Sync)
 router.post('/:idViaje/ubicaciones', (req, res) => {
     try {
         const idViaje = Number(req.params.idViaje);
-        const { latitud, longitud, precision_metros, velocidad, direccion, fecha_gps } = req.body;
+        const body = req.body;
 
-        if (latitud === undefined || longitud === undefined) {
-            return res.status(400).json({ success: false, message: 'Latitud y Longitud son campos obligatorios.' });
+        const points = Array.isArray(body) ? body : [body];
+
+        if (!points.length) {
+            return res.status(400).json({ success: false, message: 'No se enviaron datos de ubicación.' });
         }
 
-        const lat = Number(latitud);
-        const lng = Number(longitud);
+        const insertStmt = db.prepare(`
+            INSERT INTO ubicaciones_viaje (id_viajes, latitud, longitud, precision_metros, velocidad, direccion, fecha_gps, creado_en)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `);
 
-        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-            return res.status(400).json({ success: false, message: 'Coordenadas fuera de rango válido (-90..90, -180..180).' });
+        const insertGpsBatchTransaction = db.transaction((locations) => {
+            for (const item of locations) {
+                const lat = Number(item.latitud);
+                const lng = Number(item.longitud);
+
+                if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                    const gpsDate = item.fecha_gps ? new Date(item.fecha_gps).toISOString() : new Date().toISOString();
+                    insertStmt.run(
+                        idViaje,
+                        lat,
+                        lng,
+                        item.precision_metros !== undefined && item.precision_metros !== null ? Number(item.precision_metros) : null,
+                        item.velocidad !== undefined && item.velocidad !== null ? Number(item.velocidad) : null,
+                        item.direccion !== undefined && item.direccion !== null ? Number(item.direccion) : null,
+                        gpsDate
+                    );
+                }
+            }
+        });
+
+        insertGpsBatchTransaction(points);
+
+        return res.json({
+            success: true,
+            message: `Registradas ${points.length} ubicación(es) GPS correctamente.`
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: 'Error al registrar ubicaciones GPS: ' + err.message });
+    }
+});
+
+// ----------------------------------------------------
+// RUTAS DE GESTIÓN DE PARADAS (paradas_viaje)
+// ----------------------------------------------------
+
+// POST /api/viajes/:idViaje/paradas - Registrar Inicio de Parada
+router.post('/:idViaje/paradas', (req, res) => {
+    try {
+        const idViaje = Number(req.params.idViaje);
+        const { motivo_parada, latitud, longitud, observaciones } = req.body;
+
+        if (!motivo_parada || !motivo_parada.trim()) {
+            return res.status(400).json({ success: false, message: 'El motivo de la parada es obligatorio.' });
         }
 
-        const trip = db.prepare('SELECT id_estado_viaje FROM viajes WHERE id_viajes = ?').get(idViaje);
+        const trip = db.prepare(`
+            SELECT v.*, c.nombre as conductor_nombre, veh.nombre as vehiculo_nombre, veh.numero_economico
+            FROM viajes v
+            JOIN conductores c ON v.id_conductores = c.id_conductores
+            JOIN vehiculos veh ON v.id_vehiculos = veh.id_vehiculos
+            WHERE v.id_viajes = ?
+        `).get(idViaje);
+
         if (!trip) {
             return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
         }
 
-        const gpsDate = fecha_gps ? new Date(fecha_gps).toISOString() : new Date().toISOString();
+        const activeStop = db.prepare('SELECT id_paradas_viaje FROM paradas_viaje WHERE id_viajes = ? AND hora_fin IS NULL').get(idViaje);
+        if (activeStop) {
+            return res.status(400).json({ success: false, message: 'Ya existe una parada activa en este viaje. Debe finalizarla antes de iniciar otra.' });
+        }
 
-        const insertGpsTransaction = db.transaction(() => {
+        const lat = latitud !== undefined && latitud !== null ? Number(latitud) : null;
+        const lng = longitud !== undefined && longitud !== null ? Number(longitud) : null;
+
+        const createStopTransaction = db.transaction(() => {
             const insertStmt = db.prepare(`
-                INSERT INTO ubicaciones_viaje (id_viajes, latitud, longitud, precision_metros, velocidad, direccion, fecha_gps, creado_en)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO paradas_viaje (id_viajes, motivo_parada, latitud, longitud, hora_inicio, observaciones)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
             `);
-            insertStmt.run(
-                idViaje,
-                lat,
-                lng,
-                precision_metros !== undefined && precision_metros !== null ? Number(precision_metros) : null,
-                velocidad !== undefined && velocidad !== null ? Number(velocidad) : null,
-                direccion !== undefined && direccion !== null ? Number(direccion) : null,
-                gpsDate
-            );
+            const result = insertStmt.run(idViaje, motivo_parada.trim(), lat, lng, observaciones ? observaciones.trim() : null);
+
+            // Opcional: Actualizar estado de viaje a PAUSADO
+            db.prepare('UPDATE viajes SET id_estado_viaje = 4, actualizado_en = CURRENT_TIMESTAMP WHERE id_viajes = ?').run(idViaje);
+
+            return result.lastInsertRowid;
         });
 
-        insertGpsTransaction();
+        const stopId = createStopTransaction();
+        const createdStop = db.prepare('SELECT * FROM paradas_viaje WHERE id_paradas_viaje = ?').get(stopId);
 
-        return res.json({ success: true, message: 'Ubicación GPS registrada correctamente' });
+        // Notificación Telegram
+        sendTelegramMessage(
+            `🛑 *Parada Registrada en Viaje*\n\n` +
+            `*Folio:* \`${trip.folio}\`\n` +
+            `*Conductor:* ${trip.conductor_nombre}\n` +
+            `*Motivo de Parada:* ${motivo_parada.trim()}\n` +
+            `*Hora de Inicio:* ${new Date(createdStop.hora_inicio).toLocaleString('es-MX')}`
+        );
+
+        return res.status(201).json({
+            success: true,
+            message: 'Parada registrada correctamente',
+            data: createdStop
+        });
     } catch (err) {
-        return res.status(500).json({ success: false, message: 'Error al registrar ubicación GPS: ' + err.message });
+        return res.status(500).json({ success: false, message: 'Error al registrar parada: ' + err.message });
+    }
+});
+
+// POST /api/viajes/:idViaje/paradas/:idParada/finalizar - Finalizar Parada / Reanudar Viaje
+router.post('/:idViaje/paradas/:idParada/finalizar', (req, res) => {
+    try {
+        const idViaje = Number(req.params.idViaje);
+        const idParada = Number(req.params.idParada);
+
+        const stop = db.prepare('SELECT * FROM paradas_viaje WHERE id_paradas_viaje = ? AND id_viajes = ?').get(idParada, idViaje);
+        if (!stop) {
+            return res.status(404).json({ success: false, message: 'Parada no encontrada para este viaje' });
+        }
+
+        if (stop.hora_fin) {
+            return res.status(400).json({ success: false, message: 'Esta parada ya ha sido finalizada anteriormente.' });
+        }
+
+        const trip = db.prepare(`
+            SELECT v.*, c.nombre as conductor_nombre 
+            FROM viajes v JOIN conductores c ON v.id_conductores = c.id_conductores 
+            WHERE v.id_viajes = ?
+        `).get(idViaje);
+
+        const finishStopTransaction = db.transaction(() => {
+            db.prepare(`
+                UPDATE paradas_viaje
+                SET hora_fin = CURRENT_TIMESTAMP,
+                    duracion_minutos = CAST((julianday(CURRENT_TIMESTAMP) - julianday(hora_inicio)) * 24 * 60 AS INTEGER)
+                WHERE id_paradas_viaje = ?
+            `).run(idParada);
+
+            // Reanudar Estado de Viaje a EN_CURSO
+            db.prepare('UPDATE viajes SET id_estado_viaje = 3, actualizado_en = CURRENT_TIMESTAMP WHERE id_viajes = ?').run(idViaje);
+        });
+
+        finishStopTransaction();
+
+        const updatedStop = db.prepare('SELECT * FROM paradas_viaje WHERE id_paradas_viaje = ?').get(idParada);
+
+        sendTelegramMessage(
+            `▶️ *Viaje Reanudado / Parada Concluida*\n\n` +
+            `*Folio:* \`${trip ? trip.folio : ''}\`\n` +
+            `*Conductor:* ${trip ? trip.conductor_nombre : ''}\n` +
+            `*Motivo Parada:* ${updatedStop.motivo_parada}\n` +
+            `*Duración:* ${updatedStop.duracion_minutos !== null ? updatedStop.duracion_minutos + ' minutos' : '1 min'}`
+        );
+
+        return res.json({
+            success: true,
+            message: 'Parada finalizada y viaje reanudado correctamente',
+            data: updatedStop
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: 'Error al finalizar parada: ' + err.message });
+    }
+});
+
+// GET /api/viajes/:idViaje/paradas - Consultar Paradas del Viaje
+router.get('/:idViaje/paradas', (req, res) => {
+    try {
+        const idViaje = Number(req.params.idViaje);
+        const stops = db.prepare('SELECT * FROM paradas_viaje WHERE id_viajes = ? ORDER BY id_paradas_viaje DESC').all(idViaje);
+        return res.json({ success: true, data: stops });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: 'Error al obtener paradas: ' + err.message });
     }
 });
 

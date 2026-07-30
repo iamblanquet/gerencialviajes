@@ -308,7 +308,7 @@ async function loadUbicacionesGPS() {
                 <td>${u.precision_metros ? Math.round(u.precision_metros) + ' m' : '-'}</td>
                 <td>${new Date(u.fecha_gps).toLocaleString('es-MX')}</td>
                 <td>
-                    <a href="https://maps.google.com/?q=${u.latitud},${u.longitud}" target="_blank" class="btn btn-primary" style="padding:4px 8px; font-size:11px; text-decoration:none;">🗺️ Abrir Mapa</a>
+                    <a href="https://maps.google.com/?q=${u.latitud},${u.longitud}" target="_blank" class="btn btn-primary" style="padding:4px 8px; font-size:11px; text-decoration:none;">Abrir Mapa</a>
                 </td>
             </tr>
         `).join('');
@@ -318,7 +318,7 @@ async function loadUbicacionesGPS() {
 }
 
 // ----------------------------------------------------
-// MODALES DE EDICIÓN Y DETALLES
+// MODALES DE EDICIÓN Y DETALLES CON REGISTRO DE PARADAS
 // ----------------------------------------------------
 async function viewTripDetail(idViaje) {
     try {
@@ -332,6 +332,22 @@ async function viewTripDetail(idViaje) {
             const arr = typeof v.acompanantes === 'string' ? JSON.parse(v.acompanantes) : v.acompanantes;
             if (Array.isArray(arr) && arr.length) acompStr = arr.join(', ');
         } catch (e) {}
+
+        let paradasHtml = '<p style="color:#64748b; font-size:12px;">Sin paradas registradas.</p>';
+        if (v.paradas && v.paradas.length > 0) {
+            paradasHtml = `
+                <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
+                    ${v.paradas.map(p => `
+                        <div style="background:#f8fafc; border:1px solid #e2e8f0; padding:8px 10px; border-radius:6px; font-size:12px;">
+                            <strong>Motivo:</strong> ${p.motivo_parada}<br>
+                            <strong>Inicio:</strong> ${new Date(p.hora_inicio).toLocaleString('es-MX')}<br>
+                            <strong>Duración:</strong> ${p.duracion_minutos !== null ? p.duracion_minutos + ' min' : 'En curso'}<br>
+                            ${p.observaciones ? `<strong>Notas:</strong> ${p.observaciones}` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
 
         const html = `
             <div style="font-size:13px; display:flex; flex-direction:column; gap:10px;">
@@ -347,8 +363,14 @@ async function viewTripDetail(idViaje) {
                 <div><strong>Motivo:</strong> ${v.motivo}</div>
                 <div><strong>Salida:</strong> ${v.hora_salida ? new Date(v.hora_salida).toLocaleString('es-MX') : 'Pendiente'}</div>
                 <div><strong>Llegada:</strong> ${v.hora_llegada ? new Date(v.hora_llegada).toLocaleString('es-MX') : 'Pendiente'}</div>
+                
+                <div style="margin-top:8px; border-top:1px solid #e2e8f0; padding-top:8px;">
+                    <strong>Historial de Paradas del Viaje:</strong>
+                    ${paradasHtml}
+                </div>
+
                 ${v.ultima_ubicacion ? `
-                    <div style="margin-top:10px; padding:10px; background:rgba(59,130,246,0.1); border-radius:6px;">
+                    <div style="margin-top:8px; padding:10px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px;">
                         <strong>Última Ubicación GPS:</strong><br>
                         Lat: ${v.ultima_ubicacion.latitud}, Lng: ${v.ultima_ubicacion.longitud}<br>
                         Fecha: ${new Date(v.ultima_ubicacion.fecha_gps).toLocaleString('es-MX')}
