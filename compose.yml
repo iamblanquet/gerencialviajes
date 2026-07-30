@@ -11,6 +11,10 @@ services:
     environment:
       - PORT=3000
       - DATABASE_PATH=/app/database/db.sqlite
+      - TELEGRAM_BOT_TOKEN=8022637619:AAFklVtmzFMGO-3O-srNOwTr6owR4d8QspM
+      - TELEGRAM_GROUP_ID=-1003909254811
+      - TELEGRAM_BOT_USERNAME=GerencialITZbot
+      - TELEGRAM_WEB_APP_URL=http://localhost/
       - ADMIN_JWT_SECRET=super_secret_jwt_key_gerenciamiento_viajes_2026
       - ADMIN_COOKIE_NAME=admin_session_token
       - ADMIN_LOGIN_MAX_ATTEMPTS=3
