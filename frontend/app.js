@@ -15,7 +15,6 @@ let currentActiveTrip = null;
 let currentActiveStop = null;
 
 let isGpsWatchStarted = false;
-let isGpsActive = false;
 let gpsWatchId = null;
 let gpsIntervalTimer = null;
 let lastGpsPosition = null;
@@ -100,17 +99,6 @@ function setupEventListeners() {
     document.getElementById('btn-open-finish-modal').addEventListener('click', openFinishModal);
     document.getElementById('btn-close-modal').addEventListener('click', closeFinishModal);
     document.getElementById('form-finish-trip').addEventListener('submit', handleFinishTrip);
-
-    // Toggle de GPS Manual / Automático
-    document.getElementById('btn-toggle-gps').addEventListener('click', () => {
-        if (isGpsActive) {
-            stopGpsTracking();
-            showAlert('Transmisión GPS pausada.', 'warning');
-        } else {
-            startGpsTracking();
-            showAlert('Transmisión GPS iniciada.', 'success');
-        }
-    });
 
     // Acciones de Parada
     document.getElementById('btn-open-stop-modal').addEventListener('click', openStopModal);
@@ -373,6 +361,8 @@ function renderActiveTripView() {
             btnFinish.classList.remove('hidden');
             stopStopTimer();
         }
+
+        startGpsTracking();
     } else if (currentActiveTrip.id_estado_viaje === 5) { // FINALIZADO
         statusBadge.textContent = 'FINALIZADO';
         statusBadge.className = 'badge badge-info';
@@ -401,7 +391,6 @@ async function handleStartTrip() {
         showAlert('Viaje iniciado. Transmisión GPS activada.', 'success');
         currentActiveTrip = res.data;
         renderActiveTripView();
-        startGpsTracking();
     } catch (err) {
         showLoading(false);
         showAlert('Error al iniciar el viaje: ' + err.message, 'danger');
@@ -572,21 +561,14 @@ function renderSummaryDetails() {
 }
 
 // ----------------------------------------------------
-// RASTREO GPS NATIVO Y CONTROLADO
+// RASTREO GPS AUTOMÁTICO Y SILENCIOSO
 // ----------------------------------------------------
 function startGpsTracking() {
-    isGpsActive = true;
-
     const pulse = document.getElementById('gps-pulse');
     const statusText = document.getElementById('gps-status-text');
-    const toggleBtn = document.getElementById('btn-toggle-gps');
 
     if (pulse) pulse.classList.add('active');
     if (statusText) statusText.textContent = 'GPS Transmitiendo (En Vivo)';
-    if (toggleBtn) {
-        toggleBtn.textContent = 'Pausar Transmisión GPS';
-        toggleBtn.className = 'btn btn-warning btn-block';
-    }
 
     updateNetworkBadge();
 
@@ -632,8 +614,6 @@ function startGpsTracking() {
 }
 
 function stopGpsTracking() {
-    isGpsActive = false;
-
     if (gpsIntervalTimer) {
         clearInterval(gpsIntervalTimer);
         gpsIntervalTimer = null;
@@ -641,18 +621,13 @@ function stopGpsTracking() {
 
     const pulse = document.getElementById('gps-pulse');
     const statusText = document.getElementById('gps-status-text');
-    const toggleBtn = document.getElementById('btn-toggle-gps');
 
     if (pulse) pulse.classList.remove('active');
-    if (statusText) statusText.textContent = 'GPS En Pausa';
-    if (toggleBtn) {
-        toggleBtn.textContent = 'Activar Transmisión GPS';
-        toggleBtn.className = 'btn btn-secondary btn-block';
-    }
+    if (statusText) statusText.textContent = 'GPS Detenido';
 }
 
 async function sendGpsLocationToBackend() {
-    if (!currentActiveTrip || !isGpsActive) return;
+    if (!currentActiveTrip) return;
 
     if (!lastGpsPosition) {
         lastGpsPosition = {
