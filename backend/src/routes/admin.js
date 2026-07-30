@@ -67,7 +67,6 @@ router.post('/auth/login', (req, res) => {
             });
         }
 
-        // Login exitoso: Resetear intentos fallidos
         db.prepare(`
             UPDATE usuarios_admin
             SET intentos_fallidos = 0, bloqueado_hasta = NULL, ultimo_acceso_en = CURRENT_TIMESTAMP, actualizado_en = CURRENT_TIMESTAMP
@@ -83,12 +82,11 @@ router.post('/auth/login', (req, res) => {
 
         const token = jwt.sign(tokenPayload, ADMIN_JWT_SECRET, { expiresIn: ADMIN_JWT_EXPIRES_IN });
 
-        // Establecer Cookie httpOnly
         res.cookie(ADMIN_COOKIE_NAME, token, {
             httpOnly: true,
             secure: ADMIN_COOKIE_SECURE,
-            sameSite: 'lax',
-            maxAge: 8 * 60 * 60 * 1000 // 8 horas
+            sameSite: 'none',
+            maxAge: 8 * 60 * 60 * 1000
         });
 
         return res.json({
@@ -99,7 +97,7 @@ router.post('/auth/login', (req, res) => {
                 nombre: user.nombre,
                 username: user.username,
                 rol: user.rol,
-                token: token // Devolver también token para soporte opcional Bearer
+                token: token
             }
         });
     } catch (err) {
@@ -135,7 +133,6 @@ router.get('/conductores', requireAdminAuth, (req, res) => {
             ORDER BY c.nombre ASC
         `).all();
 
-        // Recalcular vigencia
         const hoy = new Date().toISOString().split('T')[0];
         const driversFormatted = drivers.map(d => ({
             ...d,
@@ -312,6 +309,51 @@ router.get('/viajes', requireAdminAuth, (req, res) => {
     }
 });
 
+// GET /api/admin/viajes/:id - Detalle completo de viaje para Admin
+router.get('/viajes/:id', requireAdminAuth, (req, res) => {
+    try {
+        const idViaje = Number(req.params.id);
+        const trip = db.prepare(`
+            SELECT v.*, c.nombre as conductor_nombre, c.licencia_numero, c.telefono as conductor_telefono,
+                   veh.nombre as vehiculo_nombre, veh.numero_economico, veh.placas, veh.kilometraje_actual,
+                   l1.nombre as origen_nombre, l1.direccion as origen_direccion, l1.latitud as origen_lat, l1.longitud as origen_lng,
+                   l2.nombre as destino_nombre, l2.direccion as destino_direccion, l2.latitud as destino_lat, l2.longitud as destino_lng,
+                   ev.nombre as estado_nombre
+            FROM viajes v
+            JOIN conductores c ON v.id_conductores = c.id_conductores
+            JOIN vehiculos veh ON v.id_vehiculos = veh.id_vehiculos
+            JOIN lugares l1 ON v.id_origen = l1.id_lugares
+            JOIN lugares l2 ON v.id_destino = l2.id_lugares
+            JOIN estados_viaje ev ON v.id_estado_viaje = ev.id_estado_viaje
+            WHERE v.id_viajes = ?
+        `).get(idViaje);
+
+        if (!trip) {
+            return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
+        }
+
+        const lastLocation = db.prepare(`
+            SELECT * FROM ubicaciones_viaje WHERE id_viajes = ? ORDER BY id_ubicaciones_viaje DESC LIMIT 1
+        `).get(idViaje);
+
+        const stops = db.prepare(`
+            SELECT * FROM paradas_viaje WHERE id_viajes = ? ORDER BY id_paradas_viaje DESC
+        `).all(idViaje);
+
+        const locations = db.prepare(`
+            SELECT * FROM ubicaciones_viaje WHERE id_viajes = ? ORDER BY id_ubicaciones_viaje ASC
+        `).all(idViaje);
+
+        trip.ultima_ubicacion = lastLocation || null;
+        trip.paradas = stops || [];
+        trip.ubicaciones = locations || [];
+
+        return res.json({ success: true, data: trip });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: 'Error al consultar detalle del viaje: ' + err.message });
+    }
+});
+
 // GET /api/admin/viajes/:id/ubicaciones
 router.get('/viajes/:id/ubicaciones', requireAdminAuth, (req, res) => {
     try {
@@ -337,7 +379,7 @@ router.get('/ubicaciones/recientes', requireAdminAuth, (req, res) => {
             JOIN viajes v ON uv.id_viajes = v.id_viajes
             JOIN conductores c ON v.id_conductores = c.id_conductores
             JOIN vehiculos veh ON v.id_vehiculos = veh.id_vehiculos
-            WHERE v.id_estado_viaje = 3
+            WHERE v.id_estado_viaje IN (3, 4)
             AND uv.id_ubicaciones_viaje IN (
                 SELECT MAX(id_ubicaciones_viaje) FROM ubicaciones_viaje GROUP BY id_viajes
             )
