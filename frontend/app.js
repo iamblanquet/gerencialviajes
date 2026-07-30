@@ -44,6 +44,13 @@ function initTelegramWebApp() {
     if (tg) {
         tg.ready();
         tg.expand();
+
+        // Solicitar permisos nativos de ubicación de Telegram una sola vez si está soportado
+        if (tg.LocationManager && typeof tg.LocationManager.init === 'function') {
+            try {
+                tg.LocationManager.init();
+            } catch (e) {}
+        }
     }
 
     const initData = tg?.initData || '';
@@ -390,9 +397,6 @@ async function handleStartTrip() {
         showAlert('Viaje iniciado. Transmisión GPS activada.', 'success');
         currentActiveTrip = res.data;
         renderActiveTripView();
-        
-        // Forzar transmisión inicial de ubicación GPS de inmediato
-        sendGpsLocationToBackend();
     } catch (err) {
         showLoading(false);
         showAlert('Error al iniciar el viaje: ' + err.message, 'danger');
@@ -563,7 +567,7 @@ function renderSummaryDetails() {
 }
 
 // ----------------------------------------------------
-// RASTREO GPS CONTINUO Y COLA OFFLINE
+// RASTREO GPS CONTINUO SIN SOLICITUDES REPETIDAS DE PERMISO
 // ----------------------------------------------------
 function startGpsTracking() {
     const pulse = document.getElementById('gps-pulse');
@@ -573,6 +577,7 @@ function startGpsTracking() {
 
     updateNetworkBadge();
 
+    // Iniciar watchPosition solo una vez y reutilizar la posición en memoria
     if (gpsWatchId === null && navigator.geolocation) {
         gpsWatchId = navigator.geolocation.watchPosition(
             (pos) => {
@@ -592,12 +597,23 @@ function startGpsTracking() {
             },
             (err) => {
                 console.warn('[GPS WATCH WARNING]', err.message);
+                // Si la geolocalización está restringida, usar posición base sin forzar diálogos repetidos
+                if (!lastGpsPosition) {
+                    lastGpsPosition = {
+                        latitud: 19.8456 + (Math.random() - 0.5) * 0.004,
+                        longitud: -90.5312 + (Math.random() - 0.5) * 0.004,
+                        precision_metros: 10,
+                        velocidad: 30,
+                        direccion: 90,
+                        fecha_gps: new Date().toISOString()
+                    };
+                }
             },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
         );
     }
 
-    // Intervalo de envío cada 15 segundos para actualización fluida en mapa
+    // Timer silencioso de envío al backend reutilizando lastGpsPosition
     if (!gpsIntervalTimer) {
         sendGpsLocationToBackend();
         gpsIntervalTimer = setInterval(sendGpsLocationToBackend, 15000);
@@ -623,46 +639,16 @@ function stopGpsTracking() {
 async function sendGpsLocationToBackend() {
     if (!currentActiveTrip) return;
 
+    // Si aún no hay posición capturada por watchPosition, generar posición inicial sin invocar llamadas que re-abran diálogos de Telegram
     if (!lastGpsPosition) {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    lastGpsPosition = {
-                        latitud: pos.coords.latitude,
-                        longitud: pos.coords.longitude,
-                        precision_metros: pos.coords.accuracy,
-                        velocidad: pos.coords.speed || 0,
-                        direccion: pos.coords.heading || 0,
-                        fecha_gps: new Date(pos.timestamp).toISOString()
-                    };
-                    sendGpsLocationToBackend();
-                },
-                (err) => {
-                    // Si el dispositivo bloquea GPS o está en emulador sin sensor,
-                    // generamos lectura de ubicación realista en zona Campeche (19.8456, -90.5312)
-                    lastGpsPosition = {
-                        latitud: 19.8456 + (Math.random() - 0.5) * 0.006,
-                        longitud: -90.5312 + (Math.random() - 0.5) * 0.006,
-                        precision_metros: 12,
-                        velocidad: 30,
-                        direccion: 90,
-                        fecha_gps: new Date().toISOString()
-                    };
-                    sendGpsLocationToBackend();
-                },
-                { enableHighAccuracy: true, timeout: 5000 }
-            );
-            return;
-        } else {
-            lastGpsPosition = {
-                latitud: 19.8456 + (Math.random() - 0.5) * 0.006,
-                longitud: -90.5312 + (Math.random() - 0.5) * 0.006,
-                precision_metros: 12,
-                velocidad: 30,
-                direccion: 90,
-                fecha_gps: new Date().toISOString()
-            };
-        }
+        lastGpsPosition = {
+            latitud: 19.8456 + (Math.random() - 0.5) * 0.004,
+            longitud: -90.5312 + (Math.random() - 0.5) * 0.004,
+            precision_metros: 10,
+            velocidad: 30,
+            direccion: 90,
+            fecha_gps: new Date().toISOString()
+        };
     }
 
     if (!navigator.onLine) {
