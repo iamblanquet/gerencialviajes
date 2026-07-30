@@ -1,0 +1,55 @@
+# Render Blueprint Configuration (render.yaml)
+# Sistema de Gerenciamiento de Viajes
+
+services:
+  # 1. Backend REST API (Web Service Node.js)
+  - type: web
+    name: gerenciamiento-viajes-backend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATABASE_PATH
+        value: /var/data/db.sqlite
+      - key: ADMIN_JWT_SECRET
+        generateValue: true
+      - key: ADMIN_COOKIE_NAME
+        value: admin_session_token
+      - key: ADMIN_COOKIE_SECURE
+        value: "true"
+      - key: ADMIN_LOGIN_MAX_ATTEMPTS
+        value: "3"
+      - key: ADMIN_LOGIN_BLOCK_MINUTES
+        value: "15"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+    disk:
+      name: sqlite-db-data
+      mountPath: /var/data
+      sizeGB: 1
+
+  # 2. Frontend Conductor / Telegram Mini App (Sitio Estático)
+  - type: static
+    name: gerenciamiento-viajes-frontend
+    region: oregon
+    buildCommand: ""
+    staticPublishPath: ./frontend
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://gerenciamiento-viajes-backend.onrender.com/api/*
+
+  # 3. Panel Administrativo (Sitio Estático)
+  - type: static
+    name: gerenciamiento-viajes-panel-admin
+    region: oregon
+    buildCommand: ""
+    staticPublishPath: ./panel-admin
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://gerenciamiento-viajes-backend.onrender.com/api/*
