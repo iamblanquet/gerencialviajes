@@ -15,6 +15,7 @@ let currentActiveTrip = null;
 let currentActiveStop = null;
 
 let isGpsWatchStarted = false;
+let isGpsActive = false;
 let gpsWatchId = null;
 let gpsIntervalTimer = null;
 let lastGpsPosition = null;
@@ -45,13 +46,6 @@ function initTelegramWebApp() {
     if (tg) {
         tg.ready();
         tg.expand();
-
-        // Inicializar de forma silenciosa el LocationManager nativo de Telegram si existe
-        if (tg.LocationManager && typeof tg.LocationManager.init === 'function') {
-            try {
-                tg.LocationManager.init();
-            } catch (e) {}
-        }
     }
 
     const initData = tg?.initData || '';
@@ -106,6 +100,17 @@ function setupEventListeners() {
     document.getElementById('btn-open-finish-modal').addEventListener('click', openFinishModal);
     document.getElementById('btn-close-modal').addEventListener('click', closeFinishModal);
     document.getElementById('form-finish-trip').addEventListener('submit', handleFinishTrip);
+
+    // Toggle de GPS Manual / Automático
+    document.getElementById('btn-toggle-gps').addEventListener('click', () => {
+        if (isGpsActive) {
+            stopGpsTracking();
+            showAlert('Transmisión GPS pausada.', 'warning');
+        } else {
+            startGpsTracking();
+            showAlert('Transmisión GPS iniciada.', 'success');
+        }
+    });
 
     // Acciones de Parada
     document.getElementById('btn-open-stop-modal').addEventListener('click', openStopModal);
@@ -368,8 +373,6 @@ function renderActiveTripView() {
             btnFinish.classList.remove('hidden');
             stopStopTimer();
         }
-
-        startGpsTracking();
     } else if (currentActiveTrip.id_estado_viaje === 5) { // FINALIZADO
         statusBadge.textContent = 'FINALIZADO';
         statusBadge.className = 'badge badge-info';
@@ -398,6 +401,7 @@ async function handleStartTrip() {
         showAlert('Viaje iniciado. Transmisión GPS activada.', 'success');
         currentActiveTrip = res.data;
         renderActiveTripView();
+        startGpsTracking();
     } catch (err) {
         showLoading(false);
         showAlert('Error al iniciar el viaje: ' + err.message, 'danger');
@@ -568,40 +572,24 @@ function renderSummaryDetails() {
 }
 
 // ----------------------------------------------------
-// RASTREO GPS NATIVO Y SILENCIOSO (TELEGRAM + HTML5)
+// RASTREO GPS NATIVO Y CONTROLADO
 // ----------------------------------------------------
 function startGpsTracking() {
+    isGpsActive = true;
+
     const pulse = document.getElementById('gps-pulse');
     const statusText = document.getElementById('gps-status-text');
+    const toggleBtn = document.getElementById('btn-toggle-gps');
+
     if (pulse) pulse.classList.add('active');
     if (statusText) statusText.textContent = 'GPS Transmitiendo (En Vivo)';
+    if (toggleBtn) {
+        toggleBtn.textContent = 'Pausar Transmisión GPS';
+        toggleBtn.className = 'btn btn-warning btn-block';
+    }
 
     updateNetworkBadge();
 
-    // Intentar primero a través de Telegram LocationManager nativo (sin ventanas emergentes repetidas)
-    if (tg?.LocationManager && typeof tg.LocationManager.getLocation === 'function') {
-        try {
-            tg.LocationManager.getLocation((data) => {
-                if (data && data.latitude && data.longitude) {
-                    lastGpsPosition = {
-                        latitud: data.latitude,
-                        longitud: data.longitude,
-                        precision_metros: data.horizontal_accuracy || 8,
-                        velocidad: data.speed || 0,
-                        direccion: data.course || 0,
-                        fecha_gps: new Date().toISOString()
-                    };
-
-                    const coordsEl = document.getElementById('gps-coords-display');
-                    if (coordsEl) {
-                        coordsEl.textContent = `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Precisión: ±${Math.round(lastGpsPosition.precision_metros)}m`;
-                    }
-                }
-            });
-        } catch (e) {}
-    }
-
-    // Inicializar watchPosition EXACTAMENTE UNA VEZ por ciclo de vida de la página
     if (!isGpsWatchStarted && navigator.geolocation) {
         isGpsWatchStarted = true;
         gpsWatchId = navigator.geolocation.watchPosition(
@@ -637,7 +625,6 @@ function startGpsTracking() {
         );
     }
 
-    // Timer de transmisión silenciosa en segundo plano
     if (!gpsIntervalTimer) {
         sendGpsLocationToBackend();
         gpsIntervalTimer = setInterval(sendGpsLocationToBackend, 15000);
@@ -645,6 +632,8 @@ function startGpsTracking() {
 }
 
 function stopGpsTracking() {
+    isGpsActive = false;
+
     if (gpsIntervalTimer) {
         clearInterval(gpsIntervalTimer);
         gpsIntervalTimer = null;
@@ -652,12 +641,18 @@ function stopGpsTracking() {
 
     const pulse = document.getElementById('gps-pulse');
     const statusText = document.getElementById('gps-status-text');
+    const toggleBtn = document.getElementById('btn-toggle-gps');
+
     if (pulse) pulse.classList.remove('active');
-    if (statusText) statusText.textContent = 'GPS Detenido';
+    if (statusText) statusText.textContent = 'GPS En Pausa';
+    if (toggleBtn) {
+        toggleBtn.textContent = 'Activar Transmisión GPS';
+        toggleBtn.className = 'btn btn-secondary btn-block';
+    }
 }
 
 async function sendGpsLocationToBackend() {
-    if (!currentActiveTrip) return;
+    if (!currentActiveTrip || !isGpsActive) return;
 
     if (!lastGpsPosition) {
         lastGpsPosition = {
@@ -764,7 +759,7 @@ function updateOfflineQueueUI(count) {
 // ----------------------------------------------------
 // AUXILIARES DE INTERFAZ
 // ----------------------------------------------------
-showView = function(viewId) {
+function showView(viewId) {
     const views = ['view-demo-selector', 'view-registration', 'view-new-trip', 'view-active-trip'];
     views.forEach(id => {
         const el = document.getElementById(id);
@@ -773,7 +768,7 @@ showView = function(viewId) {
             else el.classList.add('hidden');
         }
     });
-};
+}
 
 function showLoading(show) {
     const loader = document.getElementById('loading-state');

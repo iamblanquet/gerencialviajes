@@ -170,18 +170,19 @@
                     </div>
                 </div>
 
-                <!-- Panel de GPS / Ubicación -->
+                <!-- Panel de GPS / Ubicación con Botón Manual si es necesario -->
                 <div class="gps-tracking-panel">
                     <div class="gps-status-row">
                         <div class="gps-indicator">
                             <span class="pulse-dot" id="gps-pulse"></span>
-                            <span id="gps-status-text">GPS Transmitiendo (Cada 5 min)</span>
+                            <span id="gps-status-text">GPS Inactivo</span>
                         </div>
                         <span id="gps-network-badge" class="badge badge-success">Conexión Activa</span>
                     </div>
-                    <div id="gps-coords-display" class="coords-box">
+                    <div id="gps-coords-display" class="coords-box" style="margin-bottom:8px;">
                         Lat: -- | Lng: -- | Precisión: --
                     </div>
+                    <button id="btn-toggle-gps" class="btn btn-secondary btn-block" style="padding:6px 12px; font-size:12px;">Activar Transmisión GPS</button>
                     <div id="offline-queue-text" class="help-text hidden" style="color:#d97706; margin-top:4px;">
                         Guardadas 0 ubicaciones localmente. Se enviarán al reconectar.
                     </div>
