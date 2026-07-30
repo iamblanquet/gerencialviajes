@@ -26,15 +26,20 @@ services:
       - key: ADMIN_LOGIN_BLOCK_MINUTES
         value: "15"
       - key: TELEGRAM_BOT_TOKEN
-        sync: false
+        value: 8022637619:AAFklVtmzFMGO-3O-srNOwTr6owR4d8QspM
+      - key: TELEGRAM_GROUP_ID
+        value: "-1003909254811"
+      - key: TELEGRAM_BOT_USERNAME
+        value: GerencialITZbot
     disk:
       name: sqlite-db-data
       mountPath: /var/data
       sizeGB: 1
 
   # 2. Frontend Conductor / Telegram Mini App (Sitio Estático)
-  - type: static
+  - type: web
     name: gerenciamiento-viajes-frontend
+    env: static
     region: oregon
     buildCommand: ""
     staticPublishPath: ./frontend
@@ -44,8 +49,9 @@ services:
         destination: https://gerenciamiento-viajes-backend.onrender.com/api/*
 
   # 3. Panel Administrativo (Sitio Estático)
-  - type: static
+  - type: web
     name: gerenciamiento-viajes-panel-admin
+    env: static
     region: oregon
     buildCommand: ""
     staticPublishPath: ./panel-admin
