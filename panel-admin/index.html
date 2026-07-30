@@ -225,17 +225,21 @@
                         </div>
                     </section>
 
-                    <!-- Módulo 5: Ubicaciones GPS en Vivo con Mapa Interactivo Leaflet -->
+                    <!-- Módulo 5: Ubicaciones GPS y Historial de Coordenadas -->
                     <section id="mod-ubicaciones" class="module-content hidden">
-                        <div class="table-toolbar">
-                            <h3>Monitoreo GPS en Tiempo Real</h3>
-                            <button id="btn-refresh-gps" class="btn btn-secondary">Refrescar Coordenadas</button>
+                        <div class="table-toolbar" style="margin-bottom: 12px;">
+                            <div style="display:flex; gap:10px;">
+                                <button id="btn-view-gps-live" class="btn btn-primary">Monitoreo GPS en Vivo</button>
+                                <button id="btn-view-gps-history" class="btn btn-secondary">Historial de Coordenadas Log</button>
+                            </div>
+                            <button id="btn-refresh-gps" class="btn btn-secondary">Refrescar Datos</button>
                         </div>
 
                         <!-- Mapa Interactivo en Vivo -->
-                        <div id="admin-gps-map" style="height: 380px; width: 100%; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 20px; background: #f8fafc; z-index: 1;"></div>
+                        <div id="admin-gps-map" style="height: 360px; width: 100%; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 16px; background: #f8fafc; z-index: 1;"></div>
 
-                        <div class="table-card">
+                        <!-- Sección 1: Tabla Monitoreo en Vivo -->
+                        <div id="section-gps-live" class="table-card">
                             <table class="data-table">
                                 <thead>
                                     <tr>
@@ -251,6 +255,34 @@
                                 </thead>
                                 <tbody id="tbody-ubicaciones">
                                     <tr><td colspan="8" class="text-center">Cargando posiciones GPS activas...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Sección 2: Tabla Historial de Coordenadas -->
+                        <div id="section-gps-history" class="table-card hidden">
+                            <div style="padding:12px; border-bottom:1px solid #e2e8f0; background:#f8fafc; display:flex; gap:12px; align-items:center;">
+                                <label style="font-size:12px; font-weight:600; margin:0;">Filtrar por Viaje:</label>
+                                <select id="filter-gps-trip" class="form-select" style="max-width:260px;">
+                                    <option value="">Todas las Ubicaciones Registradas</option>
+                                </select>
+                            </div>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th># ID</th>
+                                        <th>Fecha y Hora GPS</th>
+                                        <th>Folio Viaje</th>
+                                        <th>Conductor</th>
+                                        <th>Vehículo</th>
+                                        <th>Latitud</th>
+                                        <th>Longitud</th>
+                                        <th>Precisión</th>
+                                        <th>Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-historial-gps">
+                                    <tr><td colspan="9" class="text-center">Cargando historial de coordenadas...</td></tr>
                                 </tbody>
                             </table>
                         </div>

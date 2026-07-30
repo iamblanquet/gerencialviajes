@@ -370,7 +370,38 @@ router.get('/viajes/:id/ubicaciones', requireAdminAuth, (req, res) => {
     }
 });
 
-// GET /api/admin/ubicaciones/recientes (Dashboard de Monitoreo GPS)
+// GET /api/admin/ubicaciones/historial (Historial completo filtrable de coordenadas GPS)
+router.get('/ubicaciones/historial', requireAdminAuth, (req, res) => {
+    try {
+        const { id_viajes, limite } = req.query;
+        let query = `
+            SELECT uv.*, v.folio, c.nombre as conductor_nombre, veh.nombre as vehiculo_nombre, veh.numero_economico
+            FROM ubicaciones_viaje uv
+            JOIN viajes v ON uv.id_viajes = v.id_viajes
+            JOIN conductores c ON v.id_conductores = c.id_conductores
+            JOIN vehiculos veh ON v.id_vehiculos = veh.id_vehiculos
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (id_viajes) {
+            query += ` AND uv.id_viajes = ?`;
+            params.push(Number(id_viajes));
+        }
+
+        query += ` ORDER BY uv.id_ubicaciones_viaje DESC`;
+
+        const limitNum = limite ? Math.min(Number(limite), 500) : 100;
+        query += ` LIMIT ${limitNum}`;
+
+        const locations = db.prepare(query).all(...params);
+        return res.json({ success: true, data: locations });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: 'Error al obtener historial de coordenadas GPS: ' + err.message });
+    }
+});
+
+// GET /api/admin/ubicaciones/recientes (Dashboard de Monitoreo GPS en Vivo)
 router.get('/ubicaciones/recientes', requireAdminAuth, (req, res) => {
     try {
         const activeLocations = db.prepare(`

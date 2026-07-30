@@ -12,6 +12,7 @@ let currentModule = 'viajes';
 
 let mainGpsMap = null;
 let mainGpsMarkers = [];
+let currentGpsTab = 'live';
 
 // Helper para llamadas fetch seguras con credenciales y token Bearer
 async function safeFetchJson(url, options = {}) {
@@ -70,7 +71,16 @@ function setupAdminEvents() {
     document.getElementById('btn-add-conductor').addEventListener('click', () => openConductorModal());
     document.getElementById('btn-add-vehiculo').addEventListener('click', () => openVehiculoModal());
     document.getElementById('btn-add-lugar').addEventListener('click', () => openLugarModal());
-    document.getElementById('btn-refresh-gps').addEventListener('click', () => loadUbicacionesGPS());
+    
+    document.getElementById('btn-refresh-gps').addEventListener('click', () => {
+        if (currentGpsTab === 'live') loadUbicacionesGPS();
+        else loadHistorialGPS();
+    });
+
+    document.getElementById('btn-view-gps-live').addEventListener('click', () => switchGpsSubTab('live'));
+    document.getElementById('btn-view-gps-history').addEventListener('click', () => switchGpsSubTab('history'));
+    
+    document.getElementById('filter-gps-trip').addEventListener('change', () => loadHistorialGPS());
 
     document.getElementById('btn-close-admin-modal').addEventListener('click', closeModal);
 }
@@ -173,7 +183,7 @@ function switchModule(modName) {
         conductores: 'Catálogo de Conductores',
         unidades: 'Flotilla Vehicular',
         destinos: 'Catálogo de Lugares y Destinos',
-        ubicaciones: 'Monitoreo GPS en Tiempo Real'
+        ubicaciones: 'Monitoreo GPS en Tiempo Real e Historial'
     };
     document.getElementById('module-title').textContent = titles[modName] || 'Dashboard';
 
@@ -213,7 +223,7 @@ async function loadViajes() {
                 <td><span class="badge badge-${v.estado_nombre}">${v.estado_nombre}</span></td>
                 <td>${v.kilometros_recorridos !== null ? v.kilometros_recorridos + ' km' : '-'}</td>
                 <td>
-                    <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="viewTripDetail(${v.id_viajes})">Detalles y Mapa</button>
+                    <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="viewTripDetail(${v.id_viajes})">Detalles y Historial</button>
                 </td>
             </tr>
         `).join('');
@@ -316,8 +326,31 @@ async function loadDestinos() {
 }
 
 // ----------------------------------------------------
-// MONITOREO GPS CON MAPA INTERACTIVO LEAFLET
+// MONITOREO EN VIVO E HISTORIAL DE COORDENADAS GPS
 // ----------------------------------------------------
+function switchGpsSubTab(tab) {
+    currentGpsTab = tab;
+    const btnLive = document.getElementById('btn-view-gps-live');
+    const btnHistory = document.getElementById('btn-view-gps-history');
+    const secLive = document.getElementById('section-gps-live');
+    const secHistory = document.getElementById('section-gps-history');
+
+    if (tab === 'live') {
+        btnLive.className = 'btn btn-primary';
+        btnHistory.className = 'btn btn-secondary';
+        secLive.classList.remove('hidden');
+        secHistory.classList.add('hidden');
+        loadUbicacionesGPS();
+    } else {
+        btnLive.className = 'btn btn-secondary';
+        btnHistory.className = 'btn btn-primary';
+        secLive.classList.add('hidden');
+        secHistory.classList.remove('hidden');
+        populateTripFilter();
+        loadHistorialGPS();
+    }
+}
+
 async function loadUbicacionesGPS() {
     const tbody = document.getElementById('tbody-ubicaciones');
     tbody.innerHTML = '<tr><td colspan="8" class="text-center">Cargando...</td></tr>';
@@ -378,6 +411,82 @@ async function loadUbicacionesGPS() {
     }
 }
 
+async function populateTripFilter() {
+    const select = document.getElementById('filter-gps-trip');
+    try {
+        const res = await safeFetchJson(`${API_URL}/viajes`);
+        if (res.success && res.data) {
+            select.innerHTML = '<option value="">Todas las Ubicaciones Registradas</option>' +
+                res.data.map(v => `<option value="${v.id_viajes}">${v.folio} - ${v.conductor_nombre} (${v.fecha})</option>`).join('');
+        }
+    } catch (e) {}
+}
+
+async function loadHistorialGPS() {
+    const tbody = document.getElementById('tbody-historial-gps');
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center">Cargando historial de coordenadas...</td></tr>';
+
+    initMainGpsMap();
+
+    const selectedTripId = document.getElementById('filter-gps-trip').value;
+    let url = `${API_URL}/ubicaciones/historial`;
+    if (selectedTripId) url += `?id_viajes=${selectedTripId}`;
+
+    try {
+        const res = await safeFetchJson(url);
+
+        if (!res.success || !res.data || !res.data.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center">No hay registros de coordenadas GPS guardados.</td></tr>';
+            clearMainMapMarkers();
+            return;
+        }
+
+        clearMainMapMarkers();
+        const bounds = [];
+
+        tbody.innerHTML = res.data.map((u) => {
+            const lat = Number(u.latitud);
+            const lng = Number(u.longitud);
+            bounds.push([lat, lng]);
+
+            if (mainGpsMap) {
+                const marker = L.marker([lat, lng]).addTo(mainGpsMap)
+                    .bindPopup(`
+                        <div style="font-size:12px; font-family:sans-serif;">
+                            <strong>#${u.id_ubicaciones_viaje} - Folio: ${u.folio}</strong><br>
+                            Conductor: ${u.conductor_nombre}<br>
+                            Fecha: ${new Date(u.fecha_gps).toLocaleString('es-MX')}<br>
+                            Coordenadas: ${lat.toFixed(6)}, ${lng.toFixed(6)}
+                        </div>
+                    `);
+                mainGpsMarkers.push(marker);
+            }
+
+            return `
+                <tr>
+                    <td>#${u.id_ubicaciones_viaje}</td>
+                    <td>${new Date(u.fecha_gps).toLocaleString('es-MX')}</td>
+                    <td><strong>${u.folio}</strong></td>
+                    <td>${u.conductor_nombre}</td>
+                    <td>${u.vehiculo_nombre} (${u.numero_economico})</td>
+                    <td>${lat.toFixed(6)}</td>
+                    <td>${lng.toFixed(6)}</td>
+                    <td>${u.precision_metros ? Math.round(u.precision_metros) + ' m' : '-'}</td>
+                    <td>
+                        <button class="btn btn-primary" style="padding:4px 8px; font-size:11px;" onclick="centerMainMap(${lat}, ${lng})">Ubicar</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        if (mainGpsMap && bounds.length > 0) {
+            mainGpsMap.fitBounds(bounds, { padding: [40, 40] });
+        }
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger">Error: ${err.message}</td></tr>`;
+    }
+}
+
 function initMainGpsMap() {
     if (!mainGpsMap && typeof L !== 'undefined') {
         const mapContainer = document.getElementById('admin-gps-map');
@@ -402,12 +511,12 @@ function clearMainMapMarkers() {
 
 function centerMainMap(lat, lng) {
     if (mainGpsMap) {
-        mainGpsMap.setView([lat, lng], 15);
+        mainGpsMap.setView([lat, lng], 16);
     }
 }
 
 // ----------------------------------------------------
-// MODALES DE EDICIÓN Y DETALLES CON RUTA EN MAPA
+// MODALES DE EDICIÓN Y DETALLES CON RUTA Y REGISTRO COMPLETO DE COORDENADAS
 // ----------------------------------------------------
 async function viewTripDetail(idViaje) {
     try {
@@ -437,6 +546,36 @@ async function viewTripDetail(idViaje) {
             `;
         }
 
+        let ubicacionesLogHtml = '<p style="color:#64748b; font-size:12px;">Sin coordenadas GPS registradas en este viaje.</p>';
+        if (v.ubicaciones && v.ubicaciones.length > 0) {
+            ubicacionesLogHtml = `
+                <div style="max-height: 160px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; margin-top: 6px;">
+                    <table class="data-table" style="font-size:11px;">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Fecha / Hora GPS</th>
+                                <th>Latitud</th>
+                                <th>Longitud</th>
+                                <th>Precisión</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${v.ubicaciones.map(u => `
+                                <tr>
+                                    <td>#${u.id_ubicaciones_viaje}</td>
+                                    <td>${new Date(u.fecha_gps).toLocaleString('es-MX')}</td>
+                                    <td>${Number(u.latitud).toFixed(6)}</td>
+                                    <td>${Number(u.longitud).toFixed(6)}</td>
+                                    <td>${u.precision_metros ? Math.round(u.precision_metros) + ' m' : '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
         const html = `
             <div style="font-size:13px; display:flex; flex-direction:column; gap:10px;">
                 <div><strong>Folio:</strong> ${v.folio} <span class="badge badge-${v.estado_nombre}">${v.estado_nombre}</span></div>
@@ -458,8 +597,13 @@ async function viewTripDetail(idViaje) {
                 </div>
 
                 <div style="margin-top:6px; border-top:1px solid #e2e8f0; padding-top:8px;">
-                    <strong>Mapa de Rastreo GPS y Ruta Recorrida:</strong>
+                    <strong>Mapa de Ruta Recorrida:</strong>
                     <div id="modal-trip-map" style="height: 220px; width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 6px;"></div>
+                </div>
+
+                <div style="margin-top:6px; border-top:1px solid #e2e8f0; padding-top:8px;">
+                    <strong>Historial Completo de Coordenadas GPS (${v.ubicaciones ? v.ubicaciones.length : 0} puntos):</strong>
+                    ${ubicacionesLogHtml}
                 </div>
             </div>
         `;
