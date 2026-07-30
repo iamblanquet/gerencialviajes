@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Administrativo - Gerenciamiento de Viajes</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="admin-app">
+        <!-- Pantalla de Login (Si no hay sesión) -->
+        <div id="view-login" class="login-wrapper">
+            <div class="login-card">
+                <div class="login-header">
+                    <div class="login-logo">🛡️</div>
+                    <h2>Panel Administrativo</h2>
+                    <p>Gerenciamiento de Viajes de Flotilla</p>
+                </div>
+
+                <div id="login-alert" class="alert hidden"></div>
+
+                <form id="form-login">
+                    <div class="form-group">
+                        <label for="login-username">Usuario</label>
+                        <input type="text" id="login-username" placeholder="Ej: admin" required autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Contraseña</label>
+                        <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" id="btn-login" class="btn btn-primary btn-block">Iniciar Sesión</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Layout del Dashboard Principal (Sidebar + Content Header) -->
+        <div id="view-dashboard" class="dashboard-layout hidden">
+            <!-- Sidebar Navigation -->
+            <aside class="sidebar">
+                <div class="sidebar-brand">
+                    <span class="brand-icon">🚛</span>
+                    <span class="brand-name">Flotilla Admin</span>
+                </div>
+
+                <nav class="sidebar-menu">
+                    <a href="#viajes" class="menu-item active" data-module="viajes">
+                        <span class="icon">📑</span>
+                        <span>Viajes</span>
+                    </a>
+                    <a href="#conductores" class="menu-item" data-module="conductores">
+                        <span class="icon">👨‍✈️</span>
+                        <span>Conductores</span>
+                    </a>
+                    <a href="#unidades" class="menu-item" data-module="unidades">
+                        <span class="icon">🚚</span>
+                        <span>Unidades</span>
+                    </a>
+                    <a href="#destinos" class="menu-item" data-module="destinos">
+                        <span class="icon">📍</span>
+                        <span>Destinos</span>
+                    </a>
+                    <a href="#ubicaciones" class="menu-item" data-module="ubicaciones">
+                        <span class="icon">📡</span>
+                        <span>Ubicaciones GPS</span>
+                    </a>
+                </nav>
+
+                <div class="sidebar-footer">
+                    <div class="system-status">
+                        <span class="dot active"></span> Backend SQLite Online
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Workspace Area -->
+            <div class="main-wrapper">
+                <!-- Header Superior con datos del Administrador -->
+                <header class="top-header">
+                    <div class="page-title">
+                        <h1 id="module-title">Gestión de Viajes</h1>
+                    </div>
+                    <div class="user-profile">
+                        <div class="user-info">
+                            <span id="user-display-name" class="user-name">Administrador</span>
+                            <span id="user-display-role" class="user-role">ADMINISTRADOR</span>
+                        </div>
+                        <button id="btn-logout" class="btn btn-logout" title="Cerrar Sesión">
+                            <span>🚪</span> Salir
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Toast / Notification container -->
+                <div id="toast-container" class="toast-container"></div>
+
+                <!-- Contenido de Módulos -->
+                <main class="content-area">
+                    <!-- Módulo 1: Viajes -->
+                    <section id="mod-viajes" class="module-content">
+                        <div class="table-toolbar">
+                            <div class="toolbar-filters">
+                                <select id="filter-viajes-estado" class="form-select">
+                                    <option value="">Todos los Estados</option>
+                                    <option value="PENDIENTE">PENDIENTE</option>
+                                    <option value="EN_CURSO">EN_CURSO</option>
+                                    <option value="FINALIZADO">FINALIZADO</option>
+                                    <option value="CANCELADO">CANCELADO</option>
+                                </select>
+                            </div>
+                            <button id="btn-refresh-viajes" class="btn btn-secondary">🔄 Actualizar</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Folio</th>
+                                        <th>Fecha</th>
+                                        <th>Conductor</th>
+                                        <th>Unidad</th>
+                                        <th>Origen / Destino</th>
+                                        <th>Estado</th>
+                                        <th>Km Recorridos</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-viajes">
+                                    <tr><td colspan="8" class="text-center">Cargando viajes...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Módulo 2: Conductores -->
+                    <section id="mod-conductores" class="module-content hidden">
+                        <div class="table-toolbar">
+                            <h3>Directorio de Conductores</h3>
+                            <button id="btn-add-conductor" class="btn btn-primary">➕ Nuevo Conductor</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Nombre Completo</th>
+                                        <th>Licencia</th>
+                                        <th>Estado Licencia</th>
+                                        <th>Vencimiento</th>
+                                        <th>Teléfono</th>
+                                        <th>Telegram Sync</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-conductores">
+                                    <tr><td colspan="8" class="text-center">Cargando conductores...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Módulo 3: Unidades (Vehículos) -->
+                    <section id="mod-unidades" class="module-content hidden">
+                        <div class="table-toolbar">
+                            <h3>Flotilla Vehicular</h3>
+                            <button id="btn-add-vehiculo" class="btn btn-primary">➕ Nueva Unidad</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>N° Económico</th>
+                                        <th>Nombre del Vehículo</th>
+                                        <th>Placas</th>
+                                        <th>Kilometraje Actual</th>
+                                        <th>Estado</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-unidades">
+                                    <tr><td colspan="6" class="text-center">Cargando unidades...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Módulo 4: Destinos (Lugares) -->
+                    <section id="mod-destinos" class="module-content hidden">
+                        <div class="table-toolbar">
+                            <h3>Lugares y Puntos Autorizados</h3>
+                            <button id="btn-add-lugar" class="btn btn-primary">➕ Nuevo Lugar</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Nombre de Ubicación</th>
+                                        <th>Dirección</th>
+                                        <th>Coordenadas (Lat / Lng)</th>
+                                        <th>Estado</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-destinos">
+                                    <tr><td colspan="6" class="text-center">Cargando lugares...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Módulo 5: Ubicaciones GPS en Vivo -->
+                    <section id="mod-ubicaciones" class="module-content hidden">
+                        <div class="table-toolbar">
+                            <h3>Monitoreo GPS en Tiempo Real</h3>
+                            <button id="btn-refresh-gps" class="btn btn-secondary">🔄 Refrescar Coordenadas</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Viaje (Folio)</th>
+                                        <th>Conductor</th>
+                                        <th>Vehículo</th>
+                                        <th>Latitud</th>
+                                        <th>Longitud</th>
+                                        <th>Precisión</th>
+                                        <th>Último Reporte GPS</th>
+                                        <th>Ver Mapa</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-ubicaciones">
+                                    <tr><td colspan="8" class="text-center">Cargando posiciones GPS activas...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </main>
+            </div>
+        </div>
+
+        <!-- Modales Dinámicos de Edición / Detalles -->
+        <div id="admin-modal" class="modal-backdrop hidden">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3 id="modal-title">Título Modal</h3>
+                    <button id="btn-close-admin-modal" class="btn-close">&times;</button>
+                </div>
+                <div id="modal-body">
+                    <!-- Formulario dinámico renderizado por JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="admin.js"></script>
+</body>
+</html>

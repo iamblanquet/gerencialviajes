@@ -1,0 +1,13 @@
+{
+  "name": "gerenciamiento-viajes",
+  "version": "1.0.0",
+  "description": "Sistema de Gerenciamiento de Viajes de Flotilla Vehicular",
+  "scripts": {
+    "start": "cd backend && npm start",
+    "dev": "cd backend && npm run dev",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down",
+    "init-db": "cd backend && npm run init-db",
+    "create-admin": "cd backend && npm run create-admin"
+  }
+}

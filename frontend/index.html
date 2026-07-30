@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Gerenciamiento de Viajes - Conductor</title>
+    <!-- SDK Telegram WebApp -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Header Principal -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="brand-icon">🚛</div>
+                <div>
+                    <h1>Gerenciamiento de Viajes</h1>
+                    <p class="subtitle">Flotilla Vehicular</p>
+                </div>
+            </div>
+            <!-- Switcher Modo Demo / Telegram status -->
+            <div class="header-status">
+                <span id="telegram-badge" class="badge badge-info">Telegram Mini App</span>
+            </div>
+        </header>
+
+        <!-- Contenido Dinámico -->
+        <main class="app-content">
+            <!-- Alert / Toast Global -->
+            <div id="alert-box" class="alert hidden"></div>
+
+            <!-- Loading Spinner -->
+            <div id="loading-state" class="state-container hidden">
+                <div class="spinner"></div>
+                <p>Cargando información...</p>
+            </div>
+
+            <!-- Vista 1: Selector / Simulación Demo (si está fuera de Telegram) -->
+            <div id="view-demo-selector" class="card hidden">
+                <div class="card-header">
+                    <h2>Simulación de Usuario Telegram</h2>
+                    <p class="card-desc">Estás ejecutando la aplicación fuera de Telegram. Selecciona o ingresa un ID de usuario para probar.</p>
+                </div>
+                <div class="form-group">
+                    <label for="demo-user-id">ID de Usuario Telegram</label>
+                    <input type="number" id="demo-user-id" value="999999999" placeholder="Ej: 999999999">
+                </div>
+                <div class="form-group">
+                    <label for="demo-username">Nombre de Usuario</label>
+                    <input type="text" id="demo-username" value="conductor_demo" placeholder="conductor_demo">
+                </div>
+                <button id="btn-start-demo" class="btn btn-primary btn-block">Ingresar como Conductor</button>
+            </div>
+
+            <!-- Vista 2: Formulario de Registro de Conductor (Si estado es PENDIENTE) -->
+            <div id="view-registration" class="card hidden">
+                <div class="card-header">
+                    <h2>Registro de Conductor</h2>
+                    <p class="card-desc">Vincule su usuario de Telegram completando sus datos oficiales de conductor.</p>
+                </div>
+                <form id="form-register-driver">
+                    <div class="form-group">
+                        <label for="reg-nombre">Nombre Completo *</label>
+                        <input type="text" id="reg-nombre" placeholder="Ej: Juan Pérez Gómez" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-telefono">Teléfono de Contacto</label>
+                        <input type="tel" id="reg-telefono" placeholder="Ej: +52 981 123 4567">
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-licencia-num">Número de Licencia *</label>
+                        <input type="text" id="reg-licencia-num" placeholder="Ej: LIC-987654" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-licencia-venc">Fecha de Vencimiento de Licencia *</label>
+                        <input type="date" id="reg-licencia-venc" required>
+                    </div>
+                    <button type="submit" class="btn btn-success btn-block">Guardar y Vincular Conductor</button>
+                </form>
+            </div>
+
+            <!-- Vista 3: Formulario "Nuevo Viaje" -->
+            <div id="view-new-trip" class="card hidden">
+                <div class="card-header">
+                    <h2>Nuevo Viaje</h2>
+                    <p class="card-desc">Complete la información para registrar una nueva orden de viaje.</p>
+                </div>
+
+                <!-- Card Info Conductor -->
+                <div class="driver-info-box">
+                    <div class="info-row">
+                        <span class="info-label">Conductor:</span>
+                        <span id="trip-driver-name" class="info-value">Cargando...</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Estado de Licencia:</span>
+                        <span id="trip-license-badge" class="badge">Validando...</span>
+                    </div>
+                </div>
+
+                <form id="form-create-trip">
+                    <div class="form-group">
+                        <label for="trip-vehiculo">Unidad / Vehículo *</label>
+                        <select id="trip-vehiculo" required>
+                            <option value="">-- Seleccionar Vehículo --</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="trip-km-inicial">Kilometraje Inicial (km) *</label>
+                        <input type="number" id="trip-km-inicial" min="0" placeholder="0" required>
+                        <small class="help-text">Precargado con el kilometraje actual del vehículo.</small>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group col">
+                            <label for="trip-origen">Lugar de Origen *</label>
+                            <select id="trip-origen" required>
+                                <option value="">-- Seleccionar Origen --</option>
+                            </select>
+                        </div>
+                        <div class="form-group col">
+                            <label for="trip-destino">Lugar de Destino *</label>
+                            <select id="trip-destino" required>
+                                <option value="">-- Seleccionar Destino --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="trip-acompanantes">Acompañantes</label>
+                        <input type="text" id="trip-acompanantes" placeholder="Ej: Carlos Ruiz, María López (separados por coma)">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="trip-motivo">Motivo de Movilización *</label>
+                        <textarea id="trip-motivo" rows="3" placeholder="Describa el propósito de la salida..." required></textarea>
+                    </div>
+
+                    <button type="submit" id="btn-create-trip" class="btn btn-primary btn-block">Registrar Viaje</button>
+                </form>
+            </div>
+
+            <!-- Vista 4: Pantalla Viaje Activo (PENDIENTE / EN_CURSO / FINALIZADO) -->
+            <div id="view-active-trip" class="card hidden">
+                <div class="trip-status-header">
+                    <div class="folio-tag" id="active-folio">VJ-20260730-0001</div>
+                    <span id="active-status-badge" class="badge">EN_CURSO</span>
+                </div>
+
+                <div class="trip-grid-info">
+                    <div class="grid-item">
+                        <span class="grid-label">Conductor</span>
+                        <span id="active-conductor" class="grid-val">-</span>
+                    </div>
+                    <div class="grid-item">
+                        <span class="grid-label">Vehículo</span>
+                        <span id="active-vehiculo" class="grid-val">-</span>
+                    </div>
+                    <div class="grid-item">
+                        <span class="grid-label">Ruta</span>
+                        <span id="active-ruta" class="grid-val">-</span>
+                    </div>
+                    <div class="grid-item">
+                        <span class="grid-label">Km Inicial</span>
+                        <span id="active-km-inicial" class="grid-val">0 km</span>
+                    </div>
+                </div>
+
+                <!-- Panel de GPS / Ubicación -->
+                <div class="gps-tracking-panel">
+                    <div class="gps-status-row">
+                        <div class="gps-indicator">
+                            <span class="pulse-dot" id="gps-pulse"></span>
+                            <span id="gps-status-text">GPS Inactivo</span>
+                        </div>
+                        <span id="gps-last-update" class="gps-time">Sin datos</span>
+                    </div>
+                    <div id="gps-coords-display" class="coords-box">
+                        Lat: -- | Lng: -- | Precisión: --
+                    </div>
+                </div>
+
+                <!-- Acciones según Estado -->
+                <div class="active-trip-actions">
+                    <!-- Botón para Iniciar Viaje -->
+                    <button id="btn-start-trip" class="btn btn-success btn-block hidden">🚀 Iniciar Viaje</button>
+
+                    <!-- Botón para Finalizar Viaje -->
+                    <button id="btn-open-finish-modal" class="btn btn-danger btn-block hidden">🏁 Finalizar Viaje</button>
+
+                    <!-- Botón Nuevo Viaje cuando está finalizado -->
+                    <button id="btn-new-trip-again" class="btn btn-secondary btn-block hidden">➕ Crear Otro Viaje</button>
+                </div>
+
+                <!-- Resumen Visual completo del Viaje -->
+                <div id="active-summary-section" class="summary-section hidden">
+                    <h3>Resumen del Viaje</h3>
+                    <div class="summary-list">
+                        <div class="summary-item">
+                            <span>Hora de Salida:</span>
+                            <strong id="sum-hora-salida">-</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span>Hora de Llegada:</span>
+                            <strong id="sum-hora-llegada">-</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span>Kilometraje Final:</span>
+                            <strong id="sum-km-final">-</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span>Kilómetros Recorridos:</span>
+                            <strong id="sum-km-recorridos" class="text-highlight">-</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span>Acompañantes:</span>
+                            <strong id="sum-acompanantes">-</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span>Motivo:</span>
+                            <strong id="sum-motivo">-</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Modal para Finalizar Viaje -->
+        <div id="modal-finish-trip" class="modal-backdrop hidden">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Finalizar Viaje</h3>
+                    <button id="btn-close-modal" class="btn-close">&times;</button>
+                </div>
+                <form id="form-finish-trip">
+                    <div class="form-group">
+                        <label for="finish-km-final">Kilometraje Final del Vehículo (km) *</label>
+                        <input type="number" id="finish-km-final" min="0" placeholder="0" required>
+                    </div>
+
+                    <div class="calc-box">
+                        <div class="calc-row">
+                            <span>Km Inicial:</span>
+                            <span id="modal-km-inicial-val">0 km</span>
+                        </div>
+                        <div class="calc-row highlight">
+                            <span>Distancia Calculada:</span>
+                            <span id="modal-km-recorridos-val">0 km</span>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-danger btn-block">Confirmar y Finalizar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

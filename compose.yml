@@ -1,0 +1,60 @@
+services:
+  # 1. Backend Service (Node.js API REST + SQLite)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: viajes_backend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DATABASE_PATH=/app/database/db.sqlite
+      - ADMIN_JWT_SECRET=super_secret_jwt_key_gerenciamiento_viajes_2026
+      - ADMIN_COOKIE_NAME=admin_session_token
+      - ADMIN_LOGIN_MAX_ATTEMPTS=3
+      - ADMIN_LOGIN_BLOCK_MINUTES=15
+    volumes:
+      - ./database:/app/database
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Frontend Conductor (Telegram Mini App servido con Nginx en puerto 80)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: viajes_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:80/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. Panel Administrativo (Servido con Nginx en puerto 8081)
+  panel-admin:
+    build:
+      context: ./panel-admin
+      dockerfile: Dockerfile
+    container_name: viajes_panel_admin
+    restart: always
+    ports:
+      - "8081:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:80/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

@@ -1,0 +1,519 @@
+// Configuración Global y Estado de la App
+const API_URL = '/api'; // O 'http://localhost:3000/api' en desarrollo local
+let tg = window.Telegram?.WebApp || null;
+
+let currentTelegramUser = null;
+let currentConductor = null;
+let currentActiveTrip = null;
+let gpsWatchId = null;
+let gpsIntervalTimer = null;
+let lastGpsPosition = null;
+let catalogVehicles = [];
+let catalogPlaces = [];
+
+// Inicialización cuando carga la página
+document.addEventListener('DOMContentLoaded', () => {
+    initTelegramWebApp();
+    setupEventListeners();
+});
+
+function initTelegramWebApp() {
+    if (tg) {
+        tg.ready();
+        tg.expand();
+    }
+
+    const initData = tg?.initData || '';
+    if (initData) {
+        document.getElementById('telegram-badge').textContent = 'Telegram WebApp ✅';
+        autenticarTelegram(initData, null);
+    } else {
+        // Ejecutando en navegador web fuera de Telegram Mini App -> Mostrar Selector Demo
+        document.getElementById('telegram-badge').textContent = 'Modo Demo Web';
+        document.getElementById('telegram-badge').className = 'badge badge-warning';
+        showView('view-demo-selector');
+    }
+}
+
+function setupEventListeners() {
+    // Botón Iniciar Demo
+    document.getElementById('btn-start-demo').addEventListener('click', () => {
+        const id = document.getElementById('demo-user-id').value;
+        const username = document.getElementById('demo-username').value;
+        if (!id) return showAlert('Ingrese un ID de usuario demo', 'danger');
+
+        autenticarTelegram(null, { id, username, first_name: 'Conductor', last_name: 'Demo' });
+    });
+
+    // Formulario Registro de Conductor
+    document.getElementById('form-register-driver').addEventListener('submit', handleRegisterDriver);
+
+    // Selección de Vehículo -> Precargar Kilometraje Inicial
+    document.getElementById('trip-vehiculo').addEventListener('change', (e) => {
+        const selectedId = Number(e.target.value);
+        const vehicle = catalogVehicles.find(v => v.id_vehiculos === selectedId);
+        if (vehicle) {
+            const kmInput = document.getElementById('trip-km-inicial');
+            kmInput.value = vehicle.kilometraje_actual;
+            kmInput.min = vehicle.kilometraje_actual;
+        }
+    });
+
+    // Formulario Nuevo Viaje
+    document.getElementById('form-create-trip').addEventListener('submit', handleCreateTrip);
+
+    // Acciones del Viaje
+    document.getElementById('btn-start-trip').addEventListener('click', handleStartTrip);
+    document.getElementById('btn-open-finish-modal').addEventListener('click', openFinishModal);
+    document.getElementById('btn-close-modal').addEventListener('click', closeFinishModal);
+    document.getElementById('form-finish-trip').addEventListener('submit', handleFinishTrip);
+
+    // Input de kilometraje final -> calcular kilómetros recorridos
+    document.getElementById('finish-km-final').addEventListener('input', (e) => {
+        if (!currentActiveTrip) return;
+        const finalKm = Number(e.target.value) || 0;
+        const initialKm = currentActiveTrip.kilometraje_inicial;
+        const distance = Math.max(0, finalKm - initialKm);
+
+        document.getElementById('modal-km-inicial-val').textContent = `${initialKm} km`;
+        document.getElementById('modal-km-recorridos-val').textContent = `${distance} km`;
+    });
+
+    // Crear otro viaje
+    document.getElementById('btn-new-trip-again').addEventListener('click', () => {
+        currentActiveTrip = null;
+        stopGpsTracking();
+        loadNewTripForm();
+    });
+}
+
+// ----------------------------------------------------
+// AUTENTICACIÓN Y CARGA DE VISTAS
+// ----------------------------------------------------
+async function autenticarTelegram(initData, testUser) {
+    showLoading(true);
+    try {
+        const response = await fetch(`${API_URL}/telegram/autenticar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData, testUser })
+        });
+        const res = await response.json();
+
+        if (!res.success) {
+            showLoading(false);
+            return showAlert(res.message, 'danger');
+        }
+
+        currentTelegramUser = res.data.usuario_telegram;
+        currentConductor = res.data.conductor;
+
+        if (res.data.estado_registro === 'PENDIENTE' || !currentConductor) {
+            showLoading(false);
+            showView('view-registration');
+        } else {
+            await checkActiveTripOrLoadForm();
+        }
+    } catch (err) {
+        showLoading(false);
+        showAlert('Error al conectar con el servidor backend: ' + err.message, 'danger');
+    }
+}
+
+async function handleRegisterDriver(e) {
+    e.preventDefault();
+    showLoading(true);
+
+    const payload = {
+        telegram_user_id: currentTelegramUser.telegram_user_id,
+        nombre: document.getElementById('reg-nombre').value,
+        telefono: document.getElementById('reg-telefono').value,
+        licencia_numero: document.getElementById('reg-licencia-num').value,
+        licencia_vencimiento: document.getElementById('reg-licencia-venc').value
+    };
+
+    try {
+        const response = await fetch(`${API_URL}/telegram/registro-conductor`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const res = await response.json();
+        showLoading(false);
+
+        if (!res.success) {
+            return showAlert(res.message, 'danger');
+        }
+
+        showAlert('¡Conductor registrado correctamente!', 'success');
+        currentTelegramUser = res.data.usuario_telegram;
+        currentConductor = res.data.conductor;
+
+        await checkActiveTripOrLoadForm();
+    } catch (err) {
+        showLoading(false);
+        showAlert('Error al guardar conductor: ' + err.message, 'danger');
+    }
+}
+
+async function checkActiveTripOrLoadForm() {
+    showLoading(true);
+    try {
+        const response = await fetch(`${API_URL}/viajes/activo?id_conductores=${currentConductor.id_conductores}`);
+        const res = await response.json();
+        showLoading(false);
+
+        if (res.success && res.data) {
+            currentActiveTrip = res.data;
+            renderActiveTripView();
+        } else {
+            await loadNewTripForm();
+        }
+    } catch (err) {
+        showLoading(false);
+        showAlert('Error al consultar viajes activos: ' + err.message, 'danger');
+    }
+}
+
+async function loadNewTripForm() {
+    showLoading(true);
+    try {
+        // Cargar Catálogos
+        const [resVeh, resLug] = await Promise.all([
+            fetch(`${API_URL}/catalogos/vehiculos`).then(r => r.json()),
+            fetch(`${API_URL}/catalogos/lugares`).then(r => r.json())
+        ]);
+
+        showLoading(false);
+
+        if (!resVeh.success || !resLug.success) {
+            return showAlert('Error al cargar catálogos', 'danger');
+        }
+
+        catalogVehicles = resVeh.data;
+        catalogPlaces = resLug.data;
+
+        // Renderizar Información del Conductor
+        document.getElementById('trip-driver-name').textContent = currentConductor.nombre;
+        const licenseBadge = document.getElementById('trip-license-badge');
+        if (currentConductor.licencia_vigente) {
+            licenseBadge.textContent = 'Licencia Vigente';
+            licenseBadge.className = 'badge badge-success';
+        } else {
+            licenseBadge.textContent = 'Licencia Vencida';
+            licenseBadge.className = 'badge badge-danger';
+        }
+
+        // Popular selects
+        const vehSelect = document.getElementById('trip-vehiculo');
+        vehSelect.innerHTML = '<option value="">-- Seleccionar Vehículo --</option>' +
+            catalogVehicles.map(v => `<option value="${v.id_vehiculos}">${v.nombre} (${v.numero_economico}) - ${v.kilometraje_actual} km</option>`).join('');
+
+        const origSelect = document.getElementById('trip-origen');
+        const destSelect = document.getElementById('trip-destino');
+        const placesOptions = '<option value="">-- Seleccionar --</option>' +
+            catalogPlaces.map(l => `<option value="${l.id_lugares}">${l.nombre}</option>`).join('');
+
+        origSelect.innerHTML = placesOptions;
+        destSelect.innerHTML = placesOptions;
+
+        showView('view-new-trip');
+    } catch (err) {
+        showLoading(false);
+        showAlert('Error al cargar formulario de viaje: ' + err.message, 'danger');
+    }
+}
+
+// ----------------------------------------------------
+// CREACIÓN Y GESTIÓN DE VIAJES
+// ----------------------------------------------------
+async function handleCreateTrip(e) {
+    e.preventDefault();
+
+    if (!currentConductor.licencia_vigente) {
+        return showAlert('No puede registrar un viaje si su licencia está vencida.', 'danger');
+    }
+
+    const vehId = Number(document.getElementById('trip-vehiculo').value);
+    const origId = Number(document.getElementById('trip-origen').value);
+    const destId = Number(document.getElementById('trip-destino').value);
+    const kmInicial = Number(document.getElementById('trip-km-inicial').value);
+    const acompanantesStr = document.getElementById('trip-acompanantes').value;
+    const motivo = document.getElementById('trip-motivo').value;
+
+    if (origId === destId) {
+        return showAlert('El lugar de origen debe ser distinto al lugar de destino.', 'danger');
+    }
+
+    const vehicle = catalogVehicles.find(v => v.id_vehiculos === vehId);
+    if (vehicle && kmInicial < vehicle.kilometraje_actual) {
+        return showAlert(`El kilometraje inicial no puede ser menor a ${vehicle.kilometraje_actual} km`, 'danger');
+    }
+
+    const payload = {
+        id_conductores: currentConductor.id_conductores,
+        id_vehiculos: vehId,
+        id_origen: origId,
+        id_destino: destId,
+        kilometraje_inicial: kmInicial,
+        acompanantes: acompanantesStr,
+        motivo
+    };
+
+    showLoading(true);
+    try {
+        const response = await fetch(`${API_URL}/viajes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const res = await response.json();
+        showLoading(false);
+
+        if (!res.success) {
+            return showAlert(res.message, 'danger');
+        }
+
+        showAlert(`¡Viaje registrado! Folio: ${res.data.folio}`, 'success');
+        currentActiveTrip = res.data;
+        renderActiveTripView();
+    } catch (err) {
+        showLoading(false);
+        showAlert('Error al registrar viaje: ' + err.message, 'danger');
+    }
+}
+
+function renderActiveTripView() {
+    if (!currentActiveTrip) return;
+
+    showView('view-active-trip');
+
+    document.getElementById('active-folio').textContent = currentActiveTrip.folio;
+    document.getElementById('active-conductor').textContent = currentActiveTrip.conductor_nombre || currentConductor.nombre;
+    document.getElementById('active-vehiculo').textContent = `${currentActiveTrip.vehiculo_nombre} (${currentActiveTrip.numero_economico})`;
+    document.getElementById('active-ruta').textContent = `${currentActiveTrip.origen_nombre} ➔ ${currentActiveTrip.destino_nombre}`;
+    document.getElementById('active-km-inicial').textContent = `${currentActiveTrip.kilometraje_inicial} km`;
+
+    const statusBadge = document.getElementById('active-status-badge');
+    const btnStart = document.getElementById('btn-start-trip');
+    const btnFinish = document.getElementById('btn-open-finish-modal');
+    const btnNewAgain = document.getElementById('btn-new-trip-again');
+    const summarySection = document.getElementById('active-summary-section');
+
+    // Reset visibilidad de botones
+    btnStart.classList.add('hidden');
+    btnFinish.classList.add('hidden');
+    btnNewAgain.classList.add('hidden');
+    summarySection.classList.add('hidden');
+
+    if (currentActiveTrip.id_estado_viaje === 2) { // PENDIENTE
+        statusBadge.textContent = 'PENDIENTE';
+        statusBadge.className = 'badge badge-warning';
+        btnStart.classList.remove('hidden');
+        stopGpsTracking();
+    } else if (currentActiveTrip.id_estado_viaje === 3) { // EN_CURSO
+        statusBadge.textContent = 'EN_CURSO';
+        statusBadge.className = 'badge badge-success';
+        btnFinish.classList.remove('hidden');
+        startGpsTracking();
+    } else if (currentActiveTrip.id_estado_viaje === 5) { // FINALIZADO
+        statusBadge.textContent = 'FINALIZADO';
+        statusBadge.className = 'badge badge-info';
+        btnNewAgain.classList.remove('hidden');
+        summarySection.classList.remove('hidden');
+        stopGpsTracking();
+        renderSummaryDetails();
+    }
+}
+
+async function handleStartTrip() {
+    if (!currentActiveTrip) return;
+
+    showLoading(true);
+    try {
+        const response = await fetch(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/iniciar`, {
+            method: 'POST'
+        });
+        const res = await response.json();
+        showLoading(false);
+
+        if (!res.success) {
+            return showAlert(res.message, 'danger');
+        }
+
+        showAlert('¡Viaje Iniciado! Rastreo GPS Activado.', 'success');
+        currentActiveTrip = res.data;
+        renderActiveTripView();
+    } catch (err) {
+        showLoading(false);
+        showAlert('Error al iniciar el viaje: ' + err.message, 'danger');
+    }
+}
+
+function openFinishModal() {
+    if (!currentActiveTrip) return;
+    document.getElementById('finish-km-final').value = currentActiveTrip.kilometraje_inicial;
+    document.getElementById('modal-km-inicial-val').textContent = `${currentActiveTrip.kilometraje_inicial} km`;
+    document.getElementById('modal-km-recorridos-val').textContent = `0 km`;
+    document.getElementById('modal-finish-trip').classList.remove('hidden');
+}
+
+function closeFinishModal() {
+    document.getElementById('modal-finish-trip').classList.add('hidden');
+}
+
+async function handleFinishTrip(e) {
+    e.preventDefault();
+
+    const kmFinal = Number(document.getElementById('finish-km-final').value);
+    if (kmFinal < currentActiveTrip.kilometraje_inicial) {
+        return showAlert('El kilometraje final no puede ser menor al inicial.', 'danger');
+    }
+
+    showLoading(true);
+    closeFinishModal();
+
+    try {
+        const response = await fetch(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/finalizar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kilometraje_final: kmFinal })
+        });
+        const res = await response.json();
+        showLoading(false);
+
+        if (!res.success) {
+            return showAlert(res.message, 'danger');
+        }
+
+        showAlert('¡Viaje Finalizado Exitosamente!', 'success');
+        currentActiveTrip = res.data;
+        renderActiveTripView();
+    } catch (err) {
+        showLoading(false);
+        showAlert('Error al finalizar viaje: ' + err.message, 'danger');
+    }
+}
+
+function renderSummaryDetails() {
+    if (!currentActiveTrip) return;
+
+    document.getElementById('sum-hora-salida').textContent = currentActiveTrip.hora_salida ? new Date(currentActiveTrip.hora_salida).toLocaleString('es-MX') : '-';
+    document.getElementById('sum-hora-llegada').textContent = currentActiveTrip.hora_llegada ? new Date(currentActiveTrip.hora_llegada).toLocaleString('es-MX') : '-';
+    document.getElementById('sum-km-final').textContent = `${currentActiveTrip.kilometraje_final || 0} km`;
+    document.getElementById('sum-km-recorridos').textContent = `${currentActiveTrip.kilometros_recorridos || 0} km`;
+
+    let acompStr = '-';
+    try {
+        const arr = typeof currentActiveTrip.acompanantes === 'string' ? JSON.parse(currentActiveTrip.acompanantes) : currentActiveTrip.acompanantes;
+        if (Array.isArray(arr) && arr.length > 0) acompStr = arr.join(', ');
+    } catch (e) {}
+
+    document.getElementById('sum-acompanantes').textContent = acompStr;
+    document.getElementById('sum-motivo').textContent = currentActiveTrip.motivo || '-';
+}
+
+// ----------------------------------------------------
+// RASTREO GPS (navigator.geolocation.watchPosition)
+// ----------------------------------------------------
+function startGpsTracking() {
+    if (!navigator.geolocation) {
+        document.getElementById('gps-status-text').textContent = 'Geolocalización no soportada';
+        return;
+    }
+
+    const pulse = document.getElementById('gps-pulse');
+    const statusText = document.getElementById('gps-status-text');
+    pulse.classList.add('active');
+    statusText.textContent = 'GPS Transmitiendo (Cada 15s)';
+
+    if (gpsWatchId === null) {
+        gpsWatchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                lastGpsPosition = {
+                    latitud: pos.coords.latitude,
+                    longitud: pos.coords.longitude,
+                    precision_metros: pos.coords.accuracy,
+                    velocidad: pos.coords.speed || 0,
+                    direccion: pos.coords.heading || 0,
+                    fecha_gps: new Date(pos.timestamp).toISOString()
+                };
+
+                document.getElementById('gps-coords-display').textContent =
+                    `Lat: ${lastGpsPosition.latitud.toFixed(6)} | Lng: ${lastGpsPosition.longitud.toFixed(6)} | Prec: ${Math.round(lastGpsPosition.precision_metros)}m`;
+                document.getElementById('gps-last-update').textContent = new Date().toLocaleTimeString();
+            },
+            (err) => {
+                console.warn('[GPS WARNING]', err.message);
+                document.getElementById('gps-status-text').textContent = 'Esperando señal GPS...';
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    }
+
+    // Intervalo de envío de coordenadas cada 15 segundos al backend
+    if (!gpsIntervalTimer) {
+        gpsIntervalTimer = setInterval(sendGpsLocationToBackend, 15000);
+    }
+}
+
+function stopGpsTracking() {
+    if (gpsWatchId !== null) {
+        navigator.geolocation.clearWatch(gpsWatchId);
+        gpsWatchId = null;
+    }
+    if (gpsIntervalTimer) {
+        clearInterval(gpsIntervalTimer);
+        gpsIntervalTimer = null;
+    }
+
+    const pulse = document.getElementById('gps-pulse');
+    const statusText = document.getElementById('gps-status-text');
+    if (pulse) pulse.classList.remove('active');
+    if (statusText) statusText.textContent = 'GPS Detenido';
+}
+
+async function sendGpsLocationToBackend() {
+    if (!currentActiveTrip || currentActiveTrip.id_estado_viaje !== 3 || !lastGpsPosition) return;
+
+    try {
+        await fetch(`${API_URL}/viajes/${currentActiveTrip.id_viajes}/ubicaciones`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(lastGpsPosition)
+        });
+    } catch (e) {
+        console.error('[GPS SEND ERROR]', e);
+    }
+}
+
+// ----------------------------------------------------
+// AUXILIARES DE INTERFAZ
+// ----------------------------------------------------
+function showView(viewId) {
+    const views = ['view-demo-selector', 'view-registration', 'view-new-trip', 'view-active-trip'];
+    views.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (id === viewId) el.classList.remove('hidden');
+            else el.classList.add('hidden');
+        }
+    });
+}
+
+function showLoading(show) {
+    const loader = document.getElementById('loading-state');
+    if (show) loader.classList.remove('hidden');
+    else loader.classList.add('hidden');
+}
+
+function showAlert(message, type = 'info') {
+    const alertBox = document.getElementById('alert-box');
+    alertBox.textContent = message;
+    alertBox.className = `alert alert-${type}`;
+    alertBox.classList.remove('hidden');
+
+    setTimeout(() => {
+        alertBox.classList.add('hidden');
+    }, 4500);
+}
