@@ -12,17 +12,39 @@ let currentModule = 'viajes';
 
 let mainGpsMap = null;
 let mainGpsMarkers = [];
-let modalTripMap = null;
 
-// Helper para llamadas fetch seguras
+// Helper para llamadas fetch seguras con credenciales y token Bearer
 async function safeFetchJson(url, options = {}) {
-    const res = await fetch(url, options);
+    const token = localStorage.getItem('admin_token');
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+    };
+
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const fetchOptions = {
+        credentials: 'include',
+        ...options,
+        headers
+    };
+
+    const res = await fetch(url, fetchOptions);
     const contentType = res.headers.get('content-type');
+    
     if (!contentType || !contentType.includes('application/json')) {
         const text = await res.text();
         throw new Error(`El servidor devolvió un error (${res.status}): ${text.substring(0, 100)}`);
     }
-    return await res.json();
+
+    const json = await res.json();
+    if (res.status === 401) {
+        localStorage.removeItem('admin_token');
+        showLogin();
+    }
+    return json;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -81,7 +103,6 @@ async function handleLogin(e) {
     try {
         const res = await safeFetchJson(`${API_URL}/auth/login`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
 
@@ -93,6 +114,9 @@ async function handleLogin(e) {
         }
 
         currentAdmin = res.data;
+        if (res.data.token) {
+            localStorage.setItem('admin_token', res.data.token);
+        }
         showDashboard();
     } catch (err) {
         alertBox.textContent = 'Error al conectar con el servidor: ' + err.message;
@@ -103,8 +127,9 @@ async function handleLogin(e) {
 
 async function handleLogout() {
     try {
-        await fetch(`${API_URL}/auth/logout`, { method: 'POST' });
+        await safeFetchJson(`${API_URL}/auth/logout`, { method: 'POST' });
     } catch (e) {}
+    localStorage.removeItem('admin_token');
     currentAdmin = null;
     showLogin();
 }
@@ -173,7 +198,7 @@ async function loadViajes() {
     try {
         const res = await safeFetchJson(url);
 
-        if (!res.success || !res.data.length) {
+        if (!res.success || !res.data || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="8" class="text-center">No hay viajes registrados.</td></tr>';
             return;
         }
@@ -204,7 +229,7 @@ async function loadConductores() {
     try {
         const res = await safeFetchJson(`${API_URL}/conductores`);
 
-        if (!res.success || !res.data.length) {
+        if (!res.success || !res.data || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="8" class="text-center">No hay conductores.</td></tr>';
             return;
         }
@@ -239,7 +264,7 @@ async function loadUnidades() {
     try {
         const res = await safeFetchJson(`${API_URL}/vehiculos`);
 
-        if (!res.success || !res.data.length) {
+        if (!res.success || !res.data || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center">No hay vehículos registrados.</td></tr>';
             return;
         }
@@ -268,7 +293,7 @@ async function loadDestinos() {
     try {
         const res = await safeFetchJson(`${API_URL}/lugares`);
 
-        if (!res.success || !res.data.length) {
+        if (!res.success || !res.data || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center">No hay lugares registrados.</td></tr>';
             return;
         }
@@ -302,7 +327,7 @@ async function loadUbicacionesGPS() {
     try {
         const res = await safeFetchJson(`${API_URL}/ubicaciones/recientes`);
 
-        if (!res.success || !res.data.length) {
+        if (!res.success || !res.data || !res.data.length) {
             tbody.innerHTML = '<tr><td colspan="8" class="text-center">No hay viajes transmitiendo GPS actualmente.</td></tr>';
             clearMainMapMarkers();
             return;
@@ -311,12 +336,11 @@ async function loadUbicacionesGPS() {
         clearMainMapMarkers();
         const bounds = [];
 
-        tbody.innerHTML = res.data.map((u, idx) => {
+        tbody.innerHTML = res.data.map((u) => {
             const lat = Number(u.latitud);
             const lng = Number(u.longitud);
             bounds.push([lat, lng]);
 
-            // Agregar marcador en Leaflet Map
             if (mainGpsMap) {
                 const marker = L.marker([lat, lng]).addTo(mainGpsMap)
                     .bindPopup(`
@@ -387,8 +411,7 @@ function centerMainMap(lat, lng) {
 // ----------------------------------------------------
 async function viewTripDetail(idViaje) {
     try {
-        const baseBackendUrl = window.location.hostname.includes('onrender.com') ? 'https://gerenciamiento-viajes-backend.onrender.com' : '';
-        const res = await safeFetchJson(`${baseBackendUrl}/api/viajes/${idViaje}`);
+        const res = await safeFetchJson(`${API_URL}/viajes/${idViaje}`);
         if (!res.success) return alert(res.message);
 
         const v = res.data;
@@ -443,7 +466,6 @@ async function viewTripDetail(idViaje) {
 
         openModal('Detalles del Viaje', html);
 
-        // Cargar mapa e historia de ubicaciones en el Modal
         setTimeout(async () => {
             if (typeof L !== 'undefined') {
                 const mapEl = document.getElementById('modal-trip-map');
@@ -452,17 +474,13 @@ async function viewTripDetail(idViaje) {
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(detailMap);
 
                     try {
-                        const locationsRes = await safeFetchJson(`${baseBackendUrl}/api/admin/viajes/${idViaje}/ubicaciones`);
-                        if (locationsRes.success && locationsRes.data.length > 0) {
+                        const locationsRes = await safeFetchJson(`${API_URL}/viajes/${idViaje}/ubicaciones`);
+                        if (locationsRes.success && locationsRes.data && locationsRes.data.length > 0) {
                             const latLngs = locationsRes.data.map(p => [Number(p.latitud), Number(p.longitud)]);
                             
-                            // Trazar línea de ruta (Polyline)
                             L.polyline(latLngs, { color: '#2563eb', weight: 4 }).addTo(detailMap);
-
-                            // Marcador Inicio
                             L.marker(latLngs[0]).addTo(detailMap).bindPopup('Inicio del Viaje');
 
-                            // Marcador Última Posición
                             if (latLngs.length > 1) {
                                 L.marker(latLngs[latLngs.length - 1]).addTo(detailMap).bindPopup('Última Posición GPS');
                             }
@@ -518,7 +536,6 @@ function openConductorModal(conductorData = null) {
 
         const res = await safeFetchJson(`${API_URL}/conductores`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
 
@@ -576,7 +593,6 @@ function openVehiculoModal(vehiculoData = null) {
 
         const res = await safeFetchJson(`${API_URL}/vehiculos`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
 
@@ -634,7 +650,6 @@ function openLugarModal(lugarData = null) {
 
         const res = await safeFetchJson(`${API_URL}/lugares`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
 
