@@ -1,5 +1,5 @@
 // Configuración Global y Estado de la App
-const API_URL = '/api'; // O 'http://localhost:3000/api' en desarrollo local
+const API_URL = '/api';
 let tg = window.Telegram?.WebApp || null;
 
 let currentTelegramUser = null;
@@ -24,25 +24,38 @@ function initTelegramWebApp() {
     }
 
     const initData = tg?.initData || '';
+    
     if (initData) {
-        document.getElementById('telegram-badge').textContent = 'Telegram WebApp ✅';
+        document.getElementById('telegram-badge').textContent = 'Telegram Real ✅';
+        document.getElementById('telegram-badge').className = 'badge badge-success';
         autenticarTelegram(initData, null);
     } else {
-        // Ejecutando en navegador web fuera de Telegram Mini App -> Mostrar Selector Demo
-        document.getElementById('telegram-badge').textContent = 'Modo Demo Web';
-        document.getElementById('telegram-badge').className = 'badge badge-warning';
+        // Si no hay initData (abierto fuera de Telegram), intentar verificar si hay usuario persistido o permitir inicialización
+        const savedUser = localStorage.getItem('tg_user_session');
+        if (savedUser) {
+            try {
+                const userObj = JSON.parse(savedUser);
+                autenticarTelegram(null, userObj);
+                return;
+            } catch (e) {}
+        }
+        
+        document.getElementById('telegram-badge').textContent = 'Modo Telegram Web';
+        document.getElementById('telegram-badge').className = 'badge badge-info';
         showView('view-demo-selector');
     }
 }
 
 function setupEventListeners() {
-    // Botón Iniciar Demo
+    // Botón Iniciar Sesión Telegram / ID
     document.getElementById('btn-start-demo').addEventListener('click', () => {
         const id = document.getElementById('demo-user-id').value;
         const username = document.getElementById('demo-username').value;
-        if (!id) return showAlert('Ingrese un ID de usuario demo', 'danger');
+        if (!id) return showAlert('Ingrese un ID de usuario de Telegram', 'danger');
 
-        autenticarTelegram(null, { id, username, first_name: 'Conductor', last_name: 'Demo' });
+        const testUserObj = { id: Number(id), username, first_name: 'Conductor', last_name: 'Telegram' };
+        localStorage.setItem('tg_user_session', JSON.stringify(testUserObj));
+        autenticarTelegram(null, testUserObj);
     });
 
     // Formulario Registro de Conductor
@@ -145,7 +158,7 @@ async function handleRegisterDriver(e) {
             return showAlert(res.message, 'danger');
         }
 
-        showAlert('¡Conductor registrado correctamente!', 'success');
+        showAlert('¡Conductor registrado y vinculado a Telegram exitosamente!', 'success');
         currentTelegramUser = res.data.usuario_telegram;
         currentConductor = res.data.conductor;
 
@@ -178,7 +191,6 @@ async function checkActiveTripOrLoadForm() {
 async function loadNewTripForm() {
     showLoading(true);
     try {
-        // Cargar Catálogos
         const [resVeh, resLug] = await Promise.all([
             fetch(`${API_URL}/catalogos/vehiculos`).then(r => r.json()),
             fetch(`${API_URL}/catalogos/lugares`).then(r => r.json())
@@ -193,7 +205,6 @@ async function loadNewTripForm() {
         catalogVehicles = resVeh.data;
         catalogPlaces = resLug.data;
 
-        // Renderizar Información del Conductor
         document.getElementById('trip-driver-name').textContent = currentConductor.nombre;
         const licenseBadge = document.getElementById('trip-license-badge');
         if (currentConductor.licencia_vigente) {
@@ -204,7 +215,6 @@ async function loadNewTripForm() {
             licenseBadge.className = 'badge badge-danger';
         }
 
-        // Popular selects
         const vehSelect = document.getElementById('trip-vehiculo');
         vehSelect.innerHTML = '<option value="">-- Seleccionar Vehículo --</option>' +
             catalogVehicles.map(v => `<option value="${v.id_vehiculos}">${v.nombre} (${v.numero_economico}) - ${v.kilometraje_actual} km</option>`).join('');
@@ -300,7 +310,6 @@ function renderActiveTripView() {
     const btnNewAgain = document.getElementById('btn-new-trip-again');
     const summarySection = document.getElementById('active-summary-section');
 
-    // Reset visibilidad de botones
     btnStart.classList.add('hidden');
     btnFinish.classList.add('hidden');
     btnNewAgain.classList.add('hidden');
@@ -451,7 +460,6 @@ function startGpsTracking() {
         );
     }
 
-    // Intervalo de envío de coordenadas cada 15 segundos al backend
     if (!gpsIntervalTimer) {
         gpsIntervalTimer = setInterval(sendGpsLocationToBackend, 15000);
     }
