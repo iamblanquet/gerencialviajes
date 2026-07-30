@@ -6,7 +6,6 @@ services:
   - type: web
     name: gerenciamiento-viajes-backend
     env: node
-    region: oregon
     plan: free
     buildCommand: cd backend && npm install
     startCommand: cd backend && npm start
@@ -14,7 +13,7 @@ services:
       - key: PORT
         value: 10000
       - key: DATABASE_PATH
-        value: /var/data/db.sqlite
+        value: ./database/db.sqlite
       - key: ADMIN_JWT_SECRET
         generateValue: true
       - key: ADMIN_COOKIE_NAME
@@ -31,16 +30,10 @@ services:
         value: "-1003909254811"
       - key: TELEGRAM_BOT_USERNAME
         value: GerencialITZbot
-    disk:
-      name: sqlite-db-data
-      mountPath: /var/data
-      sizeGB: 1
 
   # 2. Frontend Conductor / Telegram Mini App (Sitio Estático)
-  - type: web
+  - type: static
     name: gerenciamiento-viajes-frontend
-    env: static
-    region: oregon
     buildCommand: ""
     staticPublishPath: ./frontend
     routes:
@@ -49,10 +42,8 @@ services:
         destination: https://gerenciamiento-viajes-backend.onrender.com/api/*
 
   # 3. Panel Administrativo (Sitio Estático)
-  - type: web
+  - type: static
     name: gerenciamiento-viajes-panel-admin
-    env: static
-    region: oregon
     buildCommand: ""
     staticPublishPath: ./panel-admin
     routes:
